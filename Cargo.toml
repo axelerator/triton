@@ -8,4 +8,7 @@ edition = "2021"
 [dependencies]
 combine = "4.6.6"
 euclid = "0.22.7"
+cassowary = "0.3.0"
 svg = "0.13.0"
+itertools = "0.10.5"
+textwrap = "0.16.0"
