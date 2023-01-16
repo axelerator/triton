@@ -188,18 +188,12 @@ struct SvgConfig {
     msg_gutter: f64,
     participant_gutter: f64,
     font_size: f64,
-    canvas_size: Size,
     padding: f64,
 }
 
 const MAX_PARTICIPANT_HEAD_LENGTH: usize = 5;
 
 fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
-    let document = Document::new().set(
-        "viewBox",
-        (0, 0, config.canvas_size.x, config.canvas_size.y),
-    );
-
     let mut layout = Layout::new();
 
     let mut heads = vec![];
@@ -235,18 +229,30 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     let first_head = &heads[0];
     layout.add_constraint(layout.b(first_head.block).left() | EQ(REQUIRED) | 0.0);
 
+    /*
     for (prev, next) in heads.iter().tuple_windows() {
-        //println!("{} right LE than {} left", prev.label, next.label);
         layout.add_constraint(
             layout.b(prev.block).right() + config.participant_gutter
                 | LE(REQUIRED)
                 | layout.b(next.block).left(),
         );
-        // align bottoms
-        layout.add_constraint(
-            layout.b(prev.block).bottom() | EQ(REQUIRED) | layout.b(next.block).bottom(),
-        );
     }
+    */
+
+    // Distribute headers horizontally
+    layout.distribute(
+        layout::Orientation::Horizontal,
+        config.participant_gutter,
+        heads.iter().map(|h| &h.block),
+    );
+
+
+    // Align bottoms of headers
+    layout.align(
+        layout::Orientation::Vertical,
+        layout::AlignmentAnchor::End,
+        heads.iter().map(|h| &h.block),
+    );
 
     for head in &heads {
         let b = layout.add_block();
@@ -263,11 +269,12 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
         footers.push(footer);
     }
 
-    for (prev, next) in footers.iter().tuple_windows() {
-        // align tops
-        layout
-            .add_constraint(layout.b(prev.block).top() | EQ(REQUIRED) | layout.b(next.block).top());
-    }
+    // Align tops of footers
+    layout.align(
+        layout::Orientation::Vertical,
+        layout::AlignmentAnchor::Start,
+        footers.iter().map(|f| &f.block),
+    );
 
     let mut arrows = vec![];
     for m in &diagram.messages {
@@ -356,6 +363,8 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
 
     layout.solve();
 
+    let mut document = Document::new().set("viewBox", (0, 0, layout.width(), layout.height()));
+
     let mut doc = document;
 
     let defs = Definitions::new()
@@ -417,7 +426,6 @@ fn main() {
         msg_gutter: 20.0,
         participant_gutter: 20.0,
         font_size: 12.0,
-        canvas_size: Vector2D::new(400.0, 400.0),
         padding: 4.0,
     };
 
