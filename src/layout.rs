@@ -77,10 +77,8 @@ impl Layout {
     }
 
     pub fn solve(&mut self) {
-        println!("Solving {:?} constraints.", self.constraints_accu.len());
         self.solver.add_constraints(&self.constraints_accu).unwrap();
         for &(var, value) in self.solver.fetch_changes() {
-            println!("{:?}: {:?}", var, value);
             let var_id = self.vars[&var];
             let value = if value.is_sign_negative() { 0.0 } else { value };
             match var_id {
