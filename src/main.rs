@@ -7,7 +7,7 @@ mod sequence_diagram;
 use itertools::Itertools;
 
 use layout::Layout;
-use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Text};
+use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Text, Style};
 use svg::node::Node;
 use svg::Document;
 
@@ -360,6 +360,10 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     let mut doc = document;
 
     let defs = Definitions::new()
+      
+
+        .add(Style::new("@font-face { font-family: Roboto-Regular; src: url(\"resources/fonts/Roboto-Regular.ttf\") }"))
+        .add(Style::new("text {font-family:Roboto-Regular,Roboto;}"))
         .add(
             Marker::new()
                 .set("id", "start-arrow")
@@ -410,14 +414,38 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
 }
 
 fn main() {
+    // Read the font data.
+    let font = include_bytes!("../resources/fonts/Roboto-Regular.ttf") as &[u8];
+    // Parse it into the font type.
+    let roboto_regular = fontdue::Font::from_bytes(font, fontdue::FontSettings::default()).unwrap();
+    // The list of fonts that will be used during layout.
+    let fonts = &[roboto_regular];
+    // Create a layout context. Laying out text needs some heap allocations; reusing this context
+    // reduces the need to reallocate space. We inform layout of which way the Y axis points here.
+    let mut layout = fontdue::layout::Layout::new(fontdue::layout::CoordinateSystem::PositiveYDown);
+    // By default, layout is initialized with the default layout settings. This call is redundant, but
+    // demonstrates setting the value with your custom settings.
+    layout.reset(&fontdue::layout::LayoutSettings {
+        ..fontdue::layout::LayoutSettings::default()
+    });
+    // The text that will be laid out, its size, and the index of the font in the font list to use for
+    // that section of text.
+    layout.append(fonts, &fontdue::layout::TextStyle::new("Alice", 10.0, 0));
+    //layout.append(fonts, &fontdue::layout::TextStyle::new("world!", 40.0, 0));
+    // Prints the layout for "Hello world!"
+    let width: usize = layout.glyphs().iter().map(|g| g.width).sum();
+    println!("{:?} width: {}", layout.glyphs().len(), width);
+
+
+
     let svg_config = SvgConfig {
         max_participant_head_length: 5,
         max_msg_label_length: 60,
         line_height: 10.0,
-        letter_per_unit: 0.11,
+        letter_per_unit: 0.25,
         msg_gutter: 20.0,
         participant_gutter: 20.0,
-        font_size: 12.0,
+        font_size: 10.0,
         padding: 4.0,
         corner_radius: 5.0,
     };
