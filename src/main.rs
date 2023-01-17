@@ -67,6 +67,7 @@ impl DiagramHead {
             .set("height", height)
             .set("fill", "transparent")
             .set("stroke", "black")
+            .set("rx", config.corner_radius)
             .set("stroke-width", 1);
         group = group.add(rect);
         for (i, line) in self.label.iter().enumerate() {
@@ -99,6 +100,7 @@ impl DiagramFooter {
             .set("height", height)
             .set("fill", "transparent")
             .set("stroke", "black")
+            .set("rx", config.corner_radius)
             .set("stroke-width", 1);
         group = group.add(rect);
         for (i, line) in self.label.iter().enumerate() {
@@ -189,6 +191,7 @@ struct SvgConfig {
     participant_gutter: f64,
     font_size: f64,
     padding: f64,
+    corner_radius: f64,
 }
 
 const MAX_PARTICIPANT_HEAD_LENGTH: usize = 5;
@@ -229,23 +232,12 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     let first_head = &heads[0];
     layout.add_constraint(layout.b(first_head.block).left() | EQ(REQUIRED) | 0.0);
 
-    /*
-    for (prev, next) in heads.iter().tuple_windows() {
-        layout.add_constraint(
-            layout.b(prev.block).right() + config.participant_gutter
-                | LE(REQUIRED)
-                | layout.b(next.block).left(),
-        );
-    }
-    */
-
     // Distribute headers horizontally
     layout.distribute(
         layout::Orientation::Horizontal,
         config.participant_gutter,
         heads.iter().map(|h| &h.block),
     );
-
 
     // Align bottoms of headers
     layout.align(
@@ -427,6 +419,7 @@ fn main() {
         participant_gutter: 20.0,
         font_size: 12.0,
         padding: 4.0,
+        corner_radius: 5.0,
     };
 
     match sequence_diagram::parser::parse(
