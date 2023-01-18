@@ -4,10 +4,11 @@ extern crate combine;
 mod layout;
 mod sequence_diagram;
 
+use fontdue::Font;
 use itertools::Itertools;
 
 use layout::Layout;
-use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Text, Style};
+use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Style, Text};
 use svg::node::Node;
 use svg::Document;
 
@@ -52,7 +53,12 @@ struct MsgArrow {
 }
 
 impl DiagramHead {
-    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Vec<Box<dyn Node>> {
+    fn to_svg(
+        &self,
+        layout: &Layout,
+        config: &SvgConfig,
+        context: &mut SvgContext,
+    ) -> Vec<Box<dyn Node>> {
         let block = layout.b(self.block);
         let x = block.x_;
         let y = block.y_;
@@ -85,7 +91,12 @@ impl DiagramHead {
 }
 
 impl DiagramFooter {
-    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Vec<Box<dyn Node>> {
+    fn to_svg(
+        &self,
+        layout: &Layout,
+        config: &SvgConfig,
+        context: &mut SvgContext,
+    ) -> Vec<Box<dyn Node>> {
         let block = layout.b(self.block);
         let x = block.x_;
         let y = block.y_;
@@ -118,7 +129,12 @@ impl DiagramFooter {
 }
 
 impl ParticipantLine {
-    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Vec<Box<dyn Node>> {
+    fn to_svg(
+        &self,
+        layout: &Layout,
+        config: &SvgConfig,
+        context: &mut SvgContext,
+    ) -> Vec<Box<dyn Node>> {
         let block = layout.b(self.block);
         let x = block.x_;
         let y = block.y_;
@@ -140,7 +156,12 @@ impl ParticipantLine {
 const ARROW_TIP_LENGTH: f64 = 10.0;
 
 impl MsgArrow {
-    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Vec<Box<dyn Node>> {
+    fn to_svg(
+        &self,
+        layout: &Layout,
+        config: &SvgConfig,
+        context: &mut SvgContext,
+    ) -> Vec<Box<dyn Node>> {
         let block = layout.b(self.block);
         let x = block.x_;
         let y = block.y_;
@@ -152,7 +173,7 @@ impl MsgArrow {
             ArrowDirection::ToRight => Line::new()
                 .set("x1", 0)
                 .set("y1", height)
-                .set("x2", width - ARROW_TIP_LENGTH)
+                .set("x2", width)
                 .set("y2", height)
                 .set("stroke", "black")
                 .set("stroke-width", 1)
@@ -182,7 +203,11 @@ impl MsgArrow {
     }
 }
 
-struct SvgConfig {
+struct SvgContext {
+    font_layout: fontdue::layout::Layout,
+}
+
+struct SvgConfig<'a> {
     max_participant_head_length: usize,
     max_msg_label_length: usize,
     line_height: f64,
@@ -192,39 +217,28 @@ struct SvgConfig {
     font_size: f64,
     padding: f64,
     corner_radius: f64,
+    fonts: &'a [Font],
 }
 
 const MAX_PARTICIPANT_HEAD_LENGTH: usize = 5;
 
-fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
+fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig, context: &mut SvgContext) {
     let mut layout = Layout::new();
 
     let mut heads = vec![];
     let mut footers = vec![];
 
     for participant in &diagram.participants {
-        println!("Adding {}", participant.name);
-        let b = layout.add_block();
-        let lines = wrap(
-            participant.name.as_str(),
+        let (b, lines) = layout.add_text_block(
+            &participant.name,
             config.max_participant_head_length,
+            config.padding,
+            config.line_height,
         );
-
-        let longest_line = lines.iter().map(|l| l.len()).max().unwrap();
-        let min_width: f64 =
-            (longest_line as f64) / config.letter_per_unit + (2.0 * config.padding);
-        layout.add_constraint(layout.b(b).width | EQ(WEAK) | min_width);
-
-        let min_height = (lines.len() as f64) * config.line_height + (2.0 * config.padding);
-        println!("{:?} min height: {:?}", participant.name, min_height);
-        layout.add_constraint(layout.b(b).height | EQ(WEAK) | min_height);
-
-        let label = lines.iter().map(|cow| cow.to_string()).collect();
-
         let head = DiagramHead {
             block: b,
             participant_id: participant.id,
-            label,
+            label: lines,
         };
         heads.push(head);
     }
@@ -270,17 +284,16 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
 
     let mut arrows = vec![];
     for m in &diagram.messages {
-        let block = layout.add_block();
-        let lines = wrap(m.msg.as_str(), config.max_msg_label_length);
-
-        layout.add_constraint(
-            layout.b(block).height | EQ(WEAK) | config.line_height * (lines.len() as f64),
+        let (block, lines) = layout.add_text_block(
+            &m.msg,
+            config.max_msg_label_length,
+            config.padding,
+            config.line_height,
         );
-        let label = lines.iter().map(|cow| cow.to_string()).collect();
 
         let msg_arrow = MsgArrow {
             block,
-            label,
+            label: lines,
             direction: m.direction.clone(),
         };
 
@@ -289,10 +302,6 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
                 | GE(REQUIRED)
                 | layout.b(first_head.block).bottom() + config.msg_gutter,
         );
-
-        let longest_line = lines.iter().map(|l| l.len()).max().unwrap();
-        let min_width: f64 = (longest_line as f64) / config.letter_per_unit;
-        layout.add_constraint(layout.b(block).width | GE(REQUIRED) | min_width as f64);
 
         let from = layout.b(heads
             .iter()
@@ -388,24 +397,24 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     doc = doc.add(defs);
 
     for elem in heads {
-        for e in elem.to_svg(&layout, config) {
+        for e in elem.to_svg(&layout, config, context) {
             doc = doc.add(e);
         }
     }
 
     for elem in footers {
-        for e in elem.to_svg(&layout, config) {
+        for e in elem.to_svg(&layout, config, context) {
             doc = doc.add(e);
         }
     }
     for elem in arrows {
-        for e in elem.to_svg(&layout, config) {
+        for e in elem.to_svg(&layout, config, context) {
             doc = doc.add(e);
         }
     }
 
     for elem in participant_lines {
-        for e in elem.to_svg(&layout, config) {
+        for e in elem.to_svg(&layout, config, context) {
             doc = doc.add(e);
         }
     }
@@ -428,15 +437,6 @@ fn main() {
     layout.reset(&fontdue::layout::LayoutSettings {
         ..fontdue::layout::LayoutSettings::default()
     });
-    // The text that will be laid out, its size, and the index of the font in the font list to use for
-    // that section of text.
-    layout.append(fonts, &fontdue::layout::TextStyle::new("Alice", 10.0, 0));
-    //layout.append(fonts, &fontdue::layout::TextStyle::new("world!", 40.0, 0));
-    // Prints the layout for "Hello world!"
-    let width: usize = layout.glyphs().iter().map(|g| g.width).sum();
-    println!("{:?} width: {}", layout.glyphs().len(), width);
-
-
 
     let svg_config = SvgConfig {
         max_participant_head_length: 5,
@@ -446,15 +446,20 @@ fn main() {
         msg_gutter: 20.0,
         participant_gutter: 20.0,
         font_size: 10.0,
-        padding: 4.0,
-        corner_radius: 5.0,
+        padding: 0.0,
+        corner_radius: 0.0,
+        fonts,
+    };
+
+    let mut context = SvgContext {
+        font_layout: layout,
     };
 
     match sequence_diagram::parser::parse(
-        "Alice->Bob long name: hello, how are today my dear?\nJohn->Bob long name: How dat?\nBob long name->John: It's Alice\nBob long name->Alice: I'm fine\n".to_string(),
+        "Alice->Bob long name:XXXXXXXXXXXXXXXXXXXXXXXXXXX\nJohn->Bob long name:iiiiiiiiiiiiiiiiiiiii\nBob long name->John: It's Alice\nBob long name->Alice: I'm fine\n".to_string(),
     ) {
         Some((diagram)) => {
-            to_svg(&diagram, &svg_config);
+            to_svg(&diagram, &svg_config, &mut context);
         }
         None => {
             println!("none");

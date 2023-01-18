@@ -1,11 +1,15 @@
 #![allow(unused)] // FIXME
                   //
 use itertools::Itertools;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use cassowary::strength::{MEDIUM, REQUIRED, STRONG, WEAK};
 use cassowary::WeightedRelation::*;
 use cassowary::{Constraint, Expression, Solver, Variable};
+
+use fontdue::Font;
+use textwrap::{wrap, LineEnding, Options};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Orientation {
@@ -29,6 +33,8 @@ pub struct Layout {
     bottom_var: Variable,
     right_: f64,
     bottom_: f64,
+    font_layout: fontdue::layout::Layout,
+    font: Font,
 }
 
 impl Layout {
@@ -38,6 +44,17 @@ impl Layout {
         let mut vars = HashMap::new();
         vars.insert(right_var, VariableId::LayoutRight);
         vars.insert(bottom_var, VariableId::LayoutBottom);
+
+        // Read the font data.
+        let font = include_bytes!("../resources/fonts/Roboto-Regular.ttf") as &[u8];
+        // Parse it into the font type.
+        let roboto_regular =
+            fontdue::Font::from_bytes(font, fontdue::FontSettings::default()).unwrap();
+        // Create a layout context. Laying out text needs some heap allocations; reusing this context
+        // reduces the need to reallocate space. We inform layout of which way the Y axis points here.
+        let mut font_layout =
+            fontdue::layout::Layout::new(fontdue::layout::CoordinateSystem::PositiveYDown);
+
         Layout {
             solver: Solver::new(),
             vars,
@@ -47,6 +64,8 @@ impl Layout {
             bottom_var,
             right_: 0.0,
             bottom_: 0.0,
+            font_layout,
+            font: roboto_regular,
         }
     }
 
@@ -59,6 +78,60 @@ impl Layout {
             .push(self.bottom_var | GE(REQUIRED) | block.bottom());
         self.blocks.push(block);
         id
+    }
+
+    pub fn add_text_block(
+        &mut self,
+        content: &String,
+        max_length: usize,
+        padding: f64,
+        line_height: f64,
+    ) -> (BlockId, Vec<String>) {
+        let id = self.blocks.len();
+        let block = Block::new(self, id);
+        self.constraints_accu
+            .push(self.right_var | GE(REQUIRED) | block.right());
+        self.constraints_accu
+            .push(self.bottom_var | GE(REQUIRED) | block.bottom());
+
+        let mut text_width = 0;
+
+        let lines = wrap(content.as_str(), max_length);
+        let mut height : f64 = 0.0;
+        for line in &lines {
+            self.font_layout.clear();
+            self.font_layout.append(
+                &[&self.font],
+                &fontdue::layout::TextStyle::new(line.as_ref(), 10.0, 0),
+            );
+
+            let width: usize = self.font_layout.glyphs().iter().map(|g| g.width).sum();
+            let width_r: usize = line.chars().map(|c| {
+                let (metrics, bitmap) = self.font.rasterize(c, 10.0);
+                metrics.width
+            } ).sum(); 
+            
+            println!("{}:{}, {}",line, width, width_r );
+            if width > text_width {
+                text_width = width;
+            }
+            height += (self.font_layout.height() as f64); 
+        }
+
+        let width: f64 = (2.7 * text_width as f64) + (2.0 * padding);
+        self.constraints_accu
+            .push(block.width | EQ(STRONG) | width);
+
+        self.constraints_accu
+            .push(block.height | EQ(STRONG) | (height as f64));
+
+        self.blocks.push(block);
+        let liness: Vec<String> = lines
+            .as_slice()
+            .iter()
+            .map(|c| c.clone().into_owned())
+            .collect();
+        (id, liness)
     }
 
     pub fn b(&self, id: BlockId) -> &Block {
