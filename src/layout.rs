@@ -328,11 +328,11 @@ pub struct LayoutBlock {
     pub width: Variable,
     pub height: Variable,
 
-    pub x_: f64,
-    pub y_: f64,
-    pub width_: f64,
-    pub height_: f64,
-    pub line_height: f64,
+    x_: f64,
+    y_: f64,
+    width_: f64,
+    height_: f64,
+    line_height: f64,
     block: Block,
 }
 

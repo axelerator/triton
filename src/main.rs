@@ -87,17 +87,17 @@ impl ParticipantMarker {
 
 impl ParticipantLine {
     fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
-        let block = layout.b(self.block);
-        let x = block.x_;
-        let y = block.y_;
-        let height = block.height_;
-        let mut group = Group::new().set("transform", format!("translate({}, {})", x, y));
+        let block = layout.b(self.block).solved();
+        let mut group = Group::new().set(
+            "transform",
+            format!("translate({}, {})", block.position.x, block.position.y),
+        );
 
         let rect = Line::new()
             .set("x1", 0)
             .set("y1", 0)
             .set("x2", 0)
-            .set("y2", height)
+            .set("y2", block.height)
             .set("stroke", "black")
             .set("stroke-width", 1);
         group = group.add(rect);
@@ -109,27 +109,26 @@ const ARROW_TIP_LENGTH: f64 = 10.0;
 
 impl MsgArrow {
     fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
-        let block = layout.b(self.block);
-        let x = block.x_;
-        let y = block.y_;
-        let width = block.width_;
-        let height = block.height_;
-        let mut group = Group::new().set("transform", format!("translate({}, {})", x, y));
+        let block = layout.b(self.block).solved();
+        let mut group = Group::new().set(
+            "transform",
+            format!("translate({}, {})", block.position.x, block.position.y),
+        );
 
         let rect = match self.direction {
             ArrowDirection::ToRight => Line::new()
                 .set("x1", 0)
-                .set("y1", height)
-                .set("x2", width - ARROW_TIP_LENGTH)
-                .set("y2", height)
+                .set("y1", block.height)
+                .set("x2", block.width - ARROW_TIP_LENGTH)
+                .set("y2", block.height)
                 .set("stroke", "black")
                 .set("stroke-width", 1)
                 .set("marker-end", "url(#end-arrow)"),
             ArrowDirection::ToLeft => Line::new()
                 .set("x1", 0)
-                .set("y1", height)
-                .set("x2", width)
-                .set("y2", height)
+                .set("y1", block.height)
+                .set("x2", block.width)
+                .set("y2", block.height)
                 .set("stroke", "black")
                 .set("stroke-width", 1)
                 .set("marker-start", "url(#start-arrow)"),
@@ -156,16 +155,17 @@ impl MsgArrow {
 
 impl ActivationMarker {
     fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
-        let block = layout.b(self.block);
-        let x = block.x_;
-        let y = block.y_;
-        let mut group = Group::new().set("transform", format!("translate({}, {})", x, y));
+        let block = layout.b(self.block).solved();
+        let mut group = Group::new().set(
+            "transform",
+            format!("translate({}, {})", block.position.x, block.position.y),
+        );
 
         let rect = Rectangle::new()
             .set("x", 0)
             .set("y", 0)
-            .set("width", block.width_)
-            .set("height", block.height_)
+            .set("width", block.width)
+            .set("height", block.height)
             .set("fill", "gray")
             .set("stroke", "#333")
             .set("stroke-width", 1);
