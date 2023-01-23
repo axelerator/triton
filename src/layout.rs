@@ -1,5 +1,7 @@
-#![allow(unused)] // FIXME
-                  //
+#![allow(unused)]
+use euclid::Vector2D;
+// FIXME
+//
 use itertools::Itertools;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -186,6 +188,7 @@ impl Layout<'_> {
                             block.height_ = value;
                         }
                     }
+                    block.adjust_block();
                 }
             }
         }
@@ -305,6 +308,20 @@ pub enum BlockVariable {
     Height,
 }
 
+pub struct ScreenSpace;
+type Scalar = f64;
+
+type Position = euclid::Vector2D<Scalar, ScreenSpace>;
+type Size = euclid::Vector2D<Scalar, ScreenSpace>;
+
+#[derive(Default)]
+pub struct Block {
+    pub position: Position,
+    pub width: Scalar,
+    pub height: Scalar,
+    pub line_height: Scalar,
+}
+
 pub struct LayoutBlock {
     x: Variable,
     y: Variable,
@@ -316,6 +333,7 @@ pub struct LayoutBlock {
     pub width_: f64,
     pub height_: f64,
     pub line_height: f64,
+    block: Block,
 }
 
 impl LayoutBlock {
@@ -340,6 +358,7 @@ impl LayoutBlock {
             width_: 0.0,
             height_: 0.0,
             line_height: 0.0,
+            block: Default::default(),
         }
     }
 
@@ -357,5 +376,16 @@ impl LayoutBlock {
 
     pub fn bottom(&self) -> Expression {
         self.y + self.height
+    }
+
+    fn adjust_block(&mut self) {
+        self.block.position = Vector2D::new(self.x_, self.y_);
+        self.block.width = self.width_;
+        self.block.height = self.height_;
+        self.block.line_height = self.line_height;
+    }
+
+    pub fn solved(&self) -> &Block {
+        &self.block
     }
 }

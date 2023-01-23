@@ -25,7 +25,6 @@ use sequence_diagram::parser::*;
 type Scalar = f32;
 
 pub struct ScreenSpace;
-
 type Position = euclid::Vector2D<Scalar, ScreenSpace>;
 type Size = euclid::Vector2D<Scalar, ScreenSpace>;
 
@@ -56,18 +55,17 @@ struct ActivationMarker {
 
 impl ParticipantMarker {
     fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
-        let block = layout.b(self.block_id);
-        let x = block.x_;
-        let y = block.y_;
-        let width = block.width_;
-        let height = block.height_;
-        let mut group = Group::new().set("transform", format!("translate({}, {})", x, y));
+        let block = layout.b(self.block_id).solved();
+        let mut group = Group::new().set(
+            "transform",
+            format!("translate({}, {})", block.position.x, block.position.y),
+        );
 
         let rect = Rectangle::new()
             .set("x", 0)
             .set("y", 0)
-            .set("width", width)
-            .set("height", height)
+            .set("width", block.width)
+            .set("height", block.height)
             .set("fill", "transparent")
             .set("stroke", "black")
             .set("rx", config.corner_radius)
