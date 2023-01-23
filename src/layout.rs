@@ -8,7 +8,8 @@ use cassowary::strength::{MEDIUM, REQUIRED, STRONG, WEAK};
 use cassowary::WeightedRelation::*;
 use cassowary::{Constraint, Expression, Solver, Variable};
 
-use fontdue::Font;
+use rusttype::{point, Font, Scale};
+
 use textwrap::{wrap, LineEnding, Options};
 
 #[derive(Debug, Clone, Copy)]
@@ -24,7 +25,9 @@ pub enum AlignmentAnchor {
     End,
 }
 
-pub struct Layout {
+pub type Alignment = (Orientation, AlignmentAnchor);
+
+pub struct Layout<'a> {
     solver: Solver,
     vars: HashMap<Variable, VariableId>,
     blocks: Vec<Block>,
@@ -33,12 +36,12 @@ pub struct Layout {
     bottom_var: Variable,
     right_: f64,
     bottom_: f64,
-    font_layout: fontdue::layout::Layout,
-    font: Font,
+    font: Font<'a>,
+    pub glyphs_height: f64,
 }
 
-impl Layout {
-    pub fn new() -> Layout {
+impl Layout<'_> {
+    pub fn new() -> Layout<'static> {
         let right_var = Variable::new();
         let bottom_var = Variable::new();
         let mut vars = HashMap::new();
@@ -48,12 +51,11 @@ impl Layout {
         // Read the font data.
         let font = include_bytes!("../resources/fonts/Roboto-Regular.ttf") as &[u8];
         // Parse it into the font type.
-        let roboto_regular =
-            fontdue::Font::from_bytes(font, fontdue::FontSettings::default()).unwrap();
-        // Create a layout context. Laying out text needs some heap allocations; reusing this context
-        // reduces the need to reallocate space. We inform layout of which way the Y axis points here.
-        let mut font_layout =
-            fontdue::layout::Layout::new(fontdue::layout::CoordinateSystem::PositiveYDown);
+        let roboto_regular = Font::try_from_bytes(font).expect("Error constructing Font");
+
+        let scale = Scale::uniform(12.0);
+        let v_metrics = roboto_regular.v_metrics(scale);
+        let glyphs_height = (v_metrics.ascent - v_metrics.descent).ceil() as f64;
 
         Layout {
             solver: Solver::new(),
@@ -64,8 +66,8 @@ impl Layout {
             bottom_var,
             right_: 0.0,
             bottom_: 0.0,
-            font_layout,
             font: roboto_regular,
+            glyphs_height,
         }
     }
 
@@ -85,10 +87,10 @@ impl Layout {
         content: &String,
         max_length: usize,
         padding: f64,
-        line_height: f64,
     ) -> (BlockId, Vec<String>) {
         let id = self.blocks.len();
-        let block = Block::new(self, id);
+        let mut block = Block::new(self, id);
+        block.line_height = self.glyphs_height;
         self.constraints_accu
             .push(self.right_var | GE(REQUIRED) | block.right());
         self.constraints_accu
@@ -97,33 +99,43 @@ impl Layout {
         let mut text_width = 0;
 
         let lines = wrap(content.as_str(), max_length);
-        let mut height : f64 = 0.0;
-        for line in &lines {
-            self.font_layout.clear();
-            self.font_layout.append(
-                &[&self.font],
-                &fontdue::layout::TextStyle::new(line.as_ref(), 10.0, 0),
-            );
+        // The font size to use
+        let scale = Scale::uniform(12.0);
+        let v_metrics = self.font.v_metrics(scale);
 
-            let width: usize = self.font_layout.glyphs().iter().map(|g| g.width).sum();
-            let width_r: usize = line.chars().map(|c| {
-                let (metrics, bitmap) = self.font.rasterize(c, 10.0);
-                metrics.width
-            } ).sum(); 
-            
-            println!("{}:{}, {}",line, width, width_r );
-            if width > text_width {
-                text_width = width;
-            }
-            height += (self.font_layout.height() as f64); 
+        let mut height = 2.0 * padding;
+        for line in &lines {
+            // layout the glyphs in a line with 20 pixels padding
+            let glyphs: Vec<_> = self
+                .font
+                .layout(line, scale, point(0.0, 0.0 + v_metrics.ascent))
+                .collect();
+            // work out the layout size
+            height += self.glyphs_height as f64;
+            let glyphs_width = {
+                let min_x = glyphs
+                    .first()
+                    .map(|g| g.pixel_bounding_box().unwrap().min.x)
+                    .unwrap();
+                let max_x = glyphs
+                    .last()
+                    .map(|g| g.pixel_bounding_box().unwrap().max.x)
+                    .unwrap();
+                let line_width = (max_x - min_x) as u32;
+                if line_width > text_width {
+                    text_width = line_width;
+                }
+                line_width
+            };
         }
 
-        let width: f64 = (2.7 * text_width as f64) + (2.0 * padding);
+        let width: f64 = (text_width as f64) + (2.0 * padding);
         self.constraints_accu
-            .push(block.width | EQ(STRONG) | width);
+            .push(block.width | GE(REQUIRED) | width);
+        self.constraints_accu.push(block.width | EQ(WEAK) | width);
 
         self.constraints_accu
-            .push(block.height | EQ(STRONG) | (height as f64));
+            .push(block.height | GE(STRONG) | (height as f64));
 
         self.blocks.push(block);
         let liness: Vec<String> = lines
@@ -303,6 +315,7 @@ pub struct Block {
     pub y_: f64,
     pub width_: f64,
     pub height_: f64,
+    pub line_height: f64,
 }
 
 impl Block {
@@ -326,6 +339,7 @@ impl Block {
             y_: 0.0,
             width_: 0.0,
             height_: 0.0,
+            line_height: 0.0,
         }
     }
 

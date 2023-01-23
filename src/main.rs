@@ -4,7 +4,6 @@ extern crate combine;
 mod layout;
 mod sequence_diagram;
 
-use fontdue::Font;
 use itertools::Itertools;
 
 use layout::Layout;
@@ -30,74 +29,34 @@ pub struct ScreenSpace;
 type Position = euclid::Vector2D<Scalar, ScreenSpace>;
 type Size = euclid::Vector2D<Scalar, ScreenSpace>;
 
-struct DiagramHead {
-    label: Vec<String>,
-    block: BlockId,
+struct ParticipantMarker {
+    lines: Vec<String>,
+    block_id: BlockId,
     participant_id: ParticipantId,
 }
 
 struct ParticipantLine {
     block: BlockId,
-}
-
-struct DiagramFooter {
-    label: Vec<String>,
-    block: BlockId,
     participant_id: ParticipantId,
 }
 
 struct MsgArrow {
+    msg_id: MessageId,
     label: Vec<String>,
     direction: ArrowDirection,
+    left: ParticipantId,
+    right: ParticipantId,
     block: BlockId,
 }
 
-impl DiagramHead {
-    fn to_svg(
-        &self,
-        layout: &Layout,
-        config: &SvgConfig,
-        context: &mut SvgContext,
-    ) -> Vec<Box<dyn Node>> {
-        let block = layout.b(self.block);
-        let x = block.x_;
-        let y = block.y_;
-        let width = block.width_;
-        let height = block.height_;
-        let mut group = Group::new().set("transform", format!("translate({}, {})", x, y));
-
-        let rect = Rectangle::new()
-            .set("x", 0)
-            .set("y", 0)
-            .set("width", width)
-            .set("height", height)
-            .set("fill", "transparent")
-            .set("stroke", "black")
-            .set("rx", config.corner_radius)
-            .set("stroke-width", 1);
-        group = group.add(rect);
-        for (i, line) in self.label.iter().enumerate() {
-            let t = Text::new()
-                .set("x", config.padding)
-                .set("y", config.padding + ((i + 1) as f64) * config.line_height)
-                .set("fill", "blue")
-                .set("font-family", "monospace")
-                .set("font-size", config.font_size)
-                .add(svg::node::Text::new(line));
-            group = group.add(t);
-        }
-        vec![Box::new(group)]
-    }
+struct ActivationMarker {
+    block: BlockId,
+    level: u16,
 }
 
-impl DiagramFooter {
-    fn to_svg(
-        &self,
-        layout: &Layout,
-        config: &SvgConfig,
-        context: &mut SvgContext,
-    ) -> Vec<Box<dyn Node>> {
-        let block = layout.b(self.block);
+impl ParticipantMarker {
+    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
+        let block = layout.b(self.block_id);
         let x = block.x_;
         let y = block.y_;
         let width = block.width_;
@@ -114,27 +73,22 @@ impl DiagramFooter {
             .set("rx", config.corner_radius)
             .set("stroke-width", 1);
         group = group.add(rect);
-        for (i, line) in self.label.iter().enumerate() {
+        for (i, line) in self.lines.iter().enumerate() {
             let t = Text::new()
                 .set("x", config.padding)
-                .set("y", config.padding + ((i + 1) as f64) * config.line_height)
+                .set("y", config.padding + ((i + 1) as f64) * block.line_height)
                 .set("fill", "blue")
                 .set("font-family", "monospace")
                 .set("font-size", config.font_size)
                 .add(svg::node::Text::new(line));
             group = group.add(t);
         }
-        vec![Box::new(group)]
+        group
     }
 }
 
 impl ParticipantLine {
-    fn to_svg(
-        &self,
-        layout: &Layout,
-        config: &SvgConfig,
-        context: &mut SvgContext,
-    ) -> Vec<Box<dyn Node>> {
+    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
         let block = layout.b(self.block);
         let x = block.x_;
         let y = block.y_;
@@ -149,19 +103,14 @@ impl ParticipantLine {
             .set("stroke", "black")
             .set("stroke-width", 1);
         group = group.add(rect);
-        vec![Box::new(group)]
+        group
     }
 }
 
 const ARROW_TIP_LENGTH: f64 = 10.0;
 
 impl MsgArrow {
-    fn to_svg(
-        &self,
-        layout: &Layout,
-        config: &SvgConfig,
-        context: &mut SvgContext,
-    ) -> Vec<Box<dyn Node>> {
+    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
         let block = layout.b(self.block);
         let x = block.x_;
         let y = block.y_;
@@ -173,7 +122,7 @@ impl MsgArrow {
             ArrowDirection::ToRight => Line::new()
                 .set("x1", 0)
                 .set("y1", height)
-                .set("x2", width)
+                .set("x2", width - ARROW_TIP_LENGTH)
                 .set("y2", height)
                 .set("stroke", "black")
                 .set("stroke-width", 1)
@@ -188,10 +137,14 @@ impl MsgArrow {
                 .set("marker-start", "url(#start-arrow)"),
         };
         group = group.add(rect);
+        let text_height = (self.label.len() as f64) * block.line_height;
         for (i, line) in self.label.iter().enumerate() {
             let t = Text::new()
-                .set("x", 0)
-                .set("y", (config.line_height * (i as f64)))
+                .set("x", config.padding)
+                .set(
+                    "y",
+                    (config.padding + text_height) - (i as f64) * block.line_height,
+                )
                 .set("fill", "blue")
                 .set("font-family", "monospace")
                 .set("font-size", config.font_size)
@@ -199,178 +152,272 @@ impl MsgArrow {
 
             group = group.add(t);
         }
-        vec![Box::new(group)]
+        group
     }
 }
 
-struct SvgContext {
-    font_layout: fontdue::layout::Layout,
+impl ActivationMarker {
+    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
+        let block = layout.b(self.block);
+        let x = block.x_;
+        let y = block.y_;
+        let mut group = Group::new().set("transform", format!("translate({}, {})", x, y));
+
+        let rect = Rectangle::new()
+            .set("x", 0)
+            .set("y", 0)
+            .set("width", block.width_)
+            .set("height", block.height_)
+            .set("fill", "gray")
+            .set("stroke", "#333")
+            .set("stroke-width", 1);
+        group = group.add(rect);
+        group
+    }
 }
 
-struct SvgConfig<'a> {
+struct SvgConfig {
     max_participant_head_length: usize,
     max_msg_label_length: usize,
-    line_height: f64,
     letter_per_unit: f64,
     msg_gutter: f64,
     participant_gutter: f64,
     font_size: f64,
     padding: f64,
     corner_radius: f64,
-    fonts: &'a [Font],
 }
 
-const MAX_PARTICIPANT_HEAD_LENGTH: usize = 5;
+enum ArrowSide {
+    Unknown,
+    Left(BlockId),
+    Right(BlockId),
+}
 
-fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig, context: &mut SvgContext) {
+fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     let mut layout = Layout::new();
+    let mut arrows = vec![];
+    for m in &diagram.messages {
+        let (block, lines) =
+            layout.add_text_block(&m.msg, config.max_msg_label_length, config.padding);
 
-    let mut heads = vec![];
-    let mut footers = vec![];
+        let msg_arrow = MsgArrow {
+            msg_id: m.id,
+            block,
+            label: lines,
+            direction: m.direction.clone(),
+            left: m.left,
+            right: m.right,
+        };
+        arrows.push(msg_arrow);
+    }
+
+    layout.distribute(
+        layout::Orientation::Vertical,
+        config.msg_gutter,
+        arrows.iter().map(|a| &a.block),
+    );
 
     for participant in &diagram.participants {
+        let arrows_for_participant = arrows
+            .iter()
+            .filter(|a| a.left == participant.id || a.right == participant.id);
+        let mut first = ArrowSide::Unknown;
+        for arrow in arrows_for_participant {
+            match first {
+                ArrowSide::Unknown => {
+                    first = if arrow.left == participant.id {
+                        ArrowSide::Left(arrow.block)
+                    } else {
+                        ArrowSide::Right(arrow.block)
+                    };
+                }
+                ArrowSide::Left(first_block_id) => {
+                    if arrow.left == participant.id {
+                        layout.add_constraint(
+                            layout.b(arrow.block).left()
+                                | EQ(REQUIRED)
+                                | layout.b(first_block_id).left(),
+                        );
+                    } else {
+                        layout.add_constraint(
+                            layout.b(arrow.block).right()
+                                | EQ(REQUIRED)
+                                | layout.b(first_block_id).left(),
+                        );
+                    };
+                }
+                ArrowSide::Right(first_block_id) => {
+                    if arrow.left == participant.id {
+                        layout.add_constraint(
+                            layout.b(arrow.block).left()
+                                | EQ(REQUIRED)
+                                | layout.b(first_block_id).right(),
+                        );
+                    } else {
+                        layout.add_constraint(
+                            layout.b(arrow.block).right()
+                                | EQ(REQUIRED)
+                                | layout.b(first_block_id).right(),
+                        );
+                    };
+                }
+            }
+        }
+    }
+
+    let mut participant_lines: Vec<ParticipantLine> = vec![];
+    if let (Some(first_arrow), Some(last_arrow)) = (arrows.first(), arrows.last()) {
+        let mut last_block = None;
+        for participant in &diagram.participants {
+            let block_id = layout.add_block();
+
+            let block = layout.b(block_id);
+            layout.add_constraint(
+                block.top() | EQ(REQUIRED) | layout.b(first_arrow.block).top() - config.msg_gutter,
+            );
+            let block = layout.b(block_id);
+            layout.add_constraint(
+                block.bottom()
+                    | EQ(REQUIRED)
+                    | layout.b(last_arrow.block).bottom() + config.msg_gutter,
+            );
+            if let Some(prev_block_id) = last_block {
+                let block = layout.b(block_id);
+                layout.add_constraint(block.top() | EQ(REQUIRED) | layout.b(prev_block_id).top());
+                let block = layout.b(block_id);
+                layout.add_constraint(
+                    block.bottom() | EQ(REQUIRED) | layout.b(prev_block_id).bottom(),
+                );
+            }
+
+            last_block = Some(block_id);
+            participant_lines.push(ParticipantLine {
+                block: block_id,
+                participant_id: participant.id,
+            });
+        }
+    }
+
+    let mut activation_markers = vec![];
+    for activation in &diagram.activations {
+        if let (Some(from), Some(to), Some(p_line)) = (
+            arrows.iter().find(|a| a.msg_id == activation.from),
+            arrows.iter().find(|a| a.msg_id == activation.to),
+            participant_lines
+                .iter()
+                .find(|l| l.participant_id == activation.participant_id),
+        ) {
+            let block_id = layout.add_block();
+
+            layout.add_constraint(
+                layout.b(block_id).top() | EQ(REQUIRED) | layout.b(from.block).bottom(),
+            );
+            layout.add_constraint(
+                layout.b(block_id).bottom() | EQ(REQUIRED) | layout.b(to.block).bottom(),
+            );
+
+            layout.add_constraint(layout.b(block_id).width | EQ(REQUIRED) | layout.glyphs_height);
+
+            layout.add_constraint(
+                layout.b(block_id).left() + (layout.glyphs_height) * 1.5
+                    - (activation.level as f64 * (layout.glyphs_height * 0.5))
+                    | EQ(REQUIRED)
+                    | layout.b(p_line.block).left(),
+            );
+
+            activation_markers.push(ActivationMarker {
+                block: block_id,
+                level: activation.level,
+            });
+        }
+    }
+
+    for participant in &diagram.participants {
+        let arrows_for_participant = arrows
+            .iter()
+            .filter(|a| a.left == participant.id || a.right == participant.id);
+        let participant_line = participant_lines
+            .iter()
+            .find(|pl| pl.participant_id == participant.id)
+            .unwrap();
+        let mut first = ArrowSide::Unknown;
+        for arrow in arrows_for_participant {
+            match first {
+                ArrowSide::Unknown => {
+                    first = if arrow.left == participant.id {
+                        layout.add_constraint(
+                            layout.b(arrow.block).left()
+                                | EQ(REQUIRED)
+                                | layout.b(participant_line.block).left(),
+                        );
+                        ArrowSide::Left(arrow.block)
+                    } else {
+                        layout.add_constraint(
+                            layout.b(arrow.block).right()
+                                | EQ(REQUIRED)
+                                | layout.b(participant_line.block).left(),
+                        );
+                        ArrowSide::Right(arrow.block)
+                    };
+                }
+                ArrowSide::Left(first_block_id) => {}
+                ArrowSide::Right(first_block_id) => {}
+            }
+        }
+    }
+
+    let mut heads: Vec<ParticipantMarker> = vec![];
+    let mut footers: Vec<ParticipantMarker> = vec![];
+
+    for participant in &diagram.participants {
+        let participant_line = participant_lines
+            .iter()
+            .find(|pl| pl.participant_id == participant.id)
+            .unwrap();
         let (b, lines) = layout.add_text_block(
             &participant.name,
             config.max_participant_head_length,
             config.padding,
-            config.line_height,
         );
-        let head = DiagramHead {
-            block: b,
+        let head = ParticipantMarker {
+            block_id: b,
             participant_id: participant.id,
-            label: lines,
+            lines,
         };
+        layout.add_constraint(
+            layout.b(b).bottom() | EQ(REQUIRED) | layout.b(participant_line.block).top(),
+        );
+        layout.add_constraint(
+            layout.b(b).left() + (layout.b(b).width * 0.5)
+                | EQ(REQUIRED)
+                | layout.b(participant_line.block).left(),
+        );
         heads.push(head);
-    }
 
-    let first_head = &heads[0];
-    layout.add_constraint(layout.b(first_head.block).left() | EQ(REQUIRED) | 0.0);
-
-    // Distribute headers horizontally
-    layout.distribute(
-        layout::Orientation::Horizontal,
-        config.participant_gutter,
-        heads.iter().map(|h| &h.block),
-    );
-
-    // Align bottoms of headers
-    layout.align(
-        layout::Orientation::Vertical,
-        layout::AlignmentAnchor::End,
-        heads.iter().map(|h| &h.block),
-    );
-
-    for head in &heads {
-        let b = layout.add_block();
-
-        layout.add_constraint(layout.b(b).width | EQ(REQUIRED) | layout.b(head.block).width);
-        layout.add_constraint(layout.b(b).height | EQ(REQUIRED) | layout.b(head.block).height);
-        layout.add_constraint(layout.b(b).left() | EQ(REQUIRED) | layout.b(head.block).left());
-
-        let footer = DiagramFooter {
-            block: b,
-            participant_id: head.participant_id,
-            label: head.label.clone(),
+        let (footer_b, lines) = layout.add_text_block(
+            &participant.name,
+            config.max_participant_head_length,
+            config.padding,
+        );
+        let footer = ParticipantMarker {
+            block_id: footer_b,
+            participant_id: participant.id,
+            lines,
         };
+        layout.add_constraint(
+            layout.b(footer_b).top() | EQ(REQUIRED) | layout.b(participant_line.block).bottom(),
+        );
+        layout.add_constraint(
+            layout.b(footer_b).left() + (layout.b(footer_b).width * 0.5)
+                | EQ(REQUIRED)
+                | layout.b(participant_line.block).left(),
+        );
         footers.push(footer);
     }
 
-    // Align tops of footers
-    layout.align(
-        layout::Orientation::Vertical,
-        layout::AlignmentAnchor::Start,
-        footers.iter().map(|f| &f.block),
-    );
-
-    let mut arrows = vec![];
-    for m in &diagram.messages {
-        let (block, lines) = layout.add_text_block(
-            &m.msg,
-            config.max_msg_label_length,
-            config.padding,
-            config.line_height,
-        );
-
-        let msg_arrow = MsgArrow {
-            block,
-            label: lines,
-            direction: m.direction.clone(),
-        };
-
-        layout.add_constraint(
-            layout.b(block).top()
-                | GE(REQUIRED)
-                | layout.b(first_head.block).bottom() + config.msg_gutter,
-        );
-
-        let from = layout.b(heads
-            .iter()
-            .find(|h| h.participant_id == m.from)
-            .unwrap()
-            .block);
-        // arrow should start in the middle of the "from" participant
-        layout.add_constraint(
-            layout.b(block).left() | EQ(REQUIRED) | from.left() + (from.width * 0.5),
-        );
-
-        let to = layout.b(heads
-            .iter()
-            .find(|h| h.participant_id == m.to)
-            .unwrap()
-            .block);
-        layout
-            .add_constraint(layout.b(block).right() | EQ(REQUIRED) | to.left() + (to.width * 0.5));
-
-        arrows.push(msg_arrow);
-    }
-
-    for (prev, next) in arrows.iter().tuple_windows() {
-        layout.add_constraint(
-            layout.b(next.block).top()
-                | GE(REQUIRED)
-                | layout.b(prev.block).bottom() + config.msg_gutter,
-        );
-    }
-
-    let last_arrow = arrows.last();
-    if let Some(arrow) = last_arrow {
-        let first_footer = &footers[0];
-        layout.add_constraint(
-            layout.b(first_footer.block).top()
-                | EQ(REQUIRED)
-                | layout.b(arrow.block).bottom() + config.msg_gutter,
-        );
-    }
-
-    let mut participant_lines = vec![];
-    for (head, footer) in heads.iter().zip(footers.iter()) {
-        let block_id = layout.add_block();
-
-        let block = layout.b(block_id);
-        layout.add_constraint(block.top() | EQ(REQUIRED) | layout.b(head.block).bottom());
-
-        let block = layout.b(block_id);
-        layout.add_constraint(block.bottom() | EQ(REQUIRED) | layout.b(footer.block).top());
-
-        let block = layout.b(block_id);
-        layout.add_constraint(
-            block.left()
-                | EQ(REQUIRED)
-                | layout.b(head.block).left() + (layout.b(head.block).width * 0.5),
-        );
-
-        participant_lines.push(ParticipantLine { block: block_id });
-    }
-
     layout.solve();
-
-    let mut document = Document::new().set("viewBox", (0, 0, layout.width(), layout.height()));
-
-    let mut doc = document;
-
+    let mut doc = Document::new().set("viewBox", (0, 0, layout.width(), layout.height()));
     let defs = Definitions::new()
-      
-
         .add(Style::new("@font-face { font-family: Roboto-Regular; src: url(\"resources/fonts/Roboto-Regular.ttf\") }"))
         .add(Style::new("text {font-family:Roboto-Regular,Roboto;}"))
         .add(
@@ -397,72 +444,55 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig, context: &mut SvgContex
     doc = doc.add(defs);
 
     for elem in heads {
-        for e in elem.to_svg(&layout, config, context) {
-            doc = doc.add(e);
-        }
+        doc = doc.add(elem.to_svg(&layout, config));
     }
 
     for elem in footers {
-        for e in elem.to_svg(&layout, config, context) {
-            doc = doc.add(e);
-        }
-    }
-    for elem in arrows {
-        for e in elem.to_svg(&layout, config, context) {
-            doc = doc.add(e);
-        }
+        doc = doc.add(elem.to_svg(&layout, config));
     }
 
     for elem in participant_lines {
-        for e in elem.to_svg(&layout, config, context) {
-            doc = doc.add(e);
-        }
+        doc = doc.add(elem.to_svg(&layout, config));
     }
 
+    for elem in activation_markers {
+        doc = doc.add(elem.to_svg(&layout, config));
+    }
+
+    for elem in arrows {
+        doc = doc.add(elem.to_svg(&layout, config));
+    }
     svg::save("image.svg", &doc).unwrap();
 }
 
 fn main() {
-    // Read the font data.
-    let font = include_bytes!("../resources/fonts/Roboto-Regular.ttf") as &[u8];
-    // Parse it into the font type.
-    let roboto_regular = fontdue::Font::from_bytes(font, fontdue::FontSettings::default()).unwrap();
-    // The list of fonts that will be used during layout.
-    let fonts = &[roboto_regular];
-    // Create a layout context. Laying out text needs some heap allocations; reusing this context
-    // reduces the need to reallocate space. We inform layout of which way the Y axis points here.
-    let mut layout = fontdue::layout::Layout::new(fontdue::layout::CoordinateSystem::PositiveYDown);
-    // By default, layout is initialized with the default layout settings. This call is redundant, but
-    // demonstrates setting the value with your custom settings.
-    layout.reset(&fontdue::layout::LayoutSettings {
-        ..fontdue::layout::LayoutSettings::default()
-    });
-
     let svg_config = SvgConfig {
         max_participant_head_length: 5,
         max_msg_label_length: 60,
-        line_height: 10.0,
         letter_per_unit: 0.25,
         msg_gutter: 20.0,
         participant_gutter: 20.0,
         font_size: 10.0,
-        padding: 0.0,
-        corner_radius: 0.0,
-        fonts,
+        padding: 5.0,
+        corner_radius: 2.0,
     };
 
-    let mut context = SvgContext {
-        font_layout: layout,
-    };
+    // "Alice->Bob long name:Solving the system each time make for faster updates and allow to keep the solver in a consinstent state. However, the variable values are not updated automatically and you need to ask the solver to perform this operation before reading the values as illustrated below\nJohn->Bob long name:iiiiiiiiiiiiiiiiiiiii\nBob long name->John:It's Alice\nBob long name->Alice:I'm fine\n".to_string(),
 
-    match sequence_diagram::parser::parse(
-        "Alice->Bob long name:XXXXXXXXXXXXXXXXXXXXXXXXXXX\nJohn->Bob long name:iiiiiiiiiiiiiiiiiiiii\nBob long name->John: It's Alice\nBob long name->Alice: I'm fine\n".to_string(),
-    ) {
-        Some((diagram)) => {
-            to_svg(&diagram, &svg_config, &mut context);
+    let src = r#"
+        participant John
+        Alice->+John: Hello John, how are you?
+        Alice->+John: John, can you hear me?
+        John->-Alice: Hi Alice, I can hear you!
+        John->-Alice: I feel great!
+    "#;
+
+    match sequence_diagram::parser::parse(src.to_string()) {
+        Ok(diagram) => {
+            to_svg(&diagram, &svg_config);
         }
-        None => {
-            println!("none");
+        Err(e) => {
+            println!("Error: {:?}", e);
         }
     }
 }
