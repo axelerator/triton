@@ -66,6 +66,7 @@ pub enum Line {
     Empty,
     Message(MessageLine),
     Participant(String),
+    Actor(String),
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -106,6 +107,16 @@ fn build_participants(lines: &Vec<Line>) -> Vec<Participant> {
                 }
             }
             Line::Participant(name) => {
+                if !participant_names.contains(name) {
+                    let p: Participant = Participant {
+                        name: name.clone(),
+                        id: participants.len(),
+                    };
+                    participant_names.push(name.clone());
+                    participants.push(p);
+                }
+            }
+            Line::Actor(name) => {
                 if !participant_names.contains(name) {
                     let p: Participant = Participant {
                         name: name.clone(),
@@ -260,6 +271,19 @@ where
         .map(|(_, _, name)| Line::Participant(name.trim().to_string()))
 }
 
+fn actor_line_parser<Input>() -> impl Parser<Input, Output = Line>
+where
+    Input: Stream<Token = char>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    (
+        string("actor"),
+        skip_many(char(' ')),
+        take_until::<String, Input, combine::parser::token::Token<Input>>(char('\n')),
+    )
+        .map(|(_, _, name)| Line::Actor(name.trim().to_string()))
+}
+
 fn msg_line_parser<Input>() -> impl Parser<Input, Output = Line>
 where
     Input: Stream<Token = char>,
@@ -300,6 +324,7 @@ where
         choice((
             empty_line_parser(),
             participant_line_parser(),
+            actor_line_parser(),
             msg_line_parser(),
         )),
     )

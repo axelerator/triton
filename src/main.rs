@@ -254,12 +254,15 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
 
             let block = layout.b(block_id);
             layout.add_constraint(
-                block.top() | EQ(REQUIRED) | (layout.b(first_arrow.block).top() - config.msg_gutter),
+                block.top()
+                    | EQ(REQUIRED)
+                    | (layout.b(first_arrow.block).top() - config.msg_gutter),
             );
             let block = layout.b(block_id);
             layout.add_constraint(
                 block.bottom()
-                    | EQ(REQUIRED) | (layout.b(last_arrow.block).bottom() + config.msg_gutter),
+                    | EQ(REQUIRED)
+                    | (layout.b(last_arrow.block).bottom() + config.msg_gutter),
             );
             if let Some(prev_block_id) = last_block {
                 let block = layout.b(block_id);
@@ -300,7 +303,8 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
 
             layout.add_constraint(
                 (layout.b(block_id).left() + (layout.glyphs_height) * 1.5
-                    - (activation.level as f64 * (layout.glyphs_height * 0.5))) | EQ(REQUIRED)
+                    - (activation.level as f64 * (layout.glyphs_height * 0.5)))
+                    | EQ(REQUIRED)
                     | layout.b(p_line.block).left(),
             );
 
@@ -361,7 +365,8 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
             layout.b(b).bottom() | EQ(REQUIRED) | layout.b(participant_line.block).top(),
         );
         layout.add_constraint(
-            (layout.b(b).left() + (layout.b(b).width * 0.5)) | EQ(REQUIRED)
+            (layout.b(b).left() + (layout.b(b).width * 0.5))
+                | EQ(REQUIRED)
                 | layout.b(participant_line.block).left(),
         );
         heads.push(head);
@@ -380,7 +385,8 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
             layout.b(footer_b).top() | EQ(REQUIRED) | layout.b(participant_line.block).bottom(),
         );
         layout.add_constraint(
-            (layout.b(footer_b).left() + (layout.b(footer_b).width * 0.5)) | EQ(REQUIRED)
+            (layout.b(footer_b).left() + (layout.b(footer_b).width * 0.5))
+                | EQ(REQUIRED)
                 | layout.b(participant_line.block).left(),
         );
         footers.push(footer);

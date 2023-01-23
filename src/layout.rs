@@ -234,7 +234,9 @@ impl Layout<'_> {
                         }
                         AlignmentAnchor::Middle => {
                             self.add_constraint(
-                                (prev_block.top() + (prev_block.height * 0.5)) | EQ(REQUIRED) | (next_block.top() + (next_block.height * 0.5)),
+                                (prev_block.top() + (prev_block.height * 0.5))
+                                    | EQ(REQUIRED)
+                                    | (next_block.top() + (next_block.height * 0.5)),
                             );
                         }
                         AlignmentAnchor::End => {
@@ -258,7 +260,9 @@ impl Layout<'_> {
                         }
                         AlignmentAnchor::Middle => {
                             self.add_constraint(
-                                (prev_block.left() + (prev_block.width * 0.5)) | EQ(REQUIRED) | (next_block.left() + (next_block.width * 0.5)),
+                                (prev_block.left() + (prev_block.width * 0.5))
+                                    | EQ(REQUIRED)
+                                    | (next_block.left() + (next_block.width * 0.5)),
                             );
                         }
                         AlignmentAnchor::End => {
