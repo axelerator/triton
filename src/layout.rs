@@ -30,7 +30,7 @@ pub type Alignment = (Orientation, AlignmentAnchor);
 pub struct Layout<'a> {
     solver: Solver,
     vars: HashMap<Variable, VariableId>,
-    blocks: Vec<Block>,
+    blocks: Vec<LayoutBlock>,
     constraints_accu: Vec<Constraint>,
     right_var: Variable,
     bottom_var: Variable,
@@ -73,7 +73,7 @@ impl Layout<'_> {
 
     pub fn add_block(&mut self) -> BlockId {
         let id = self.blocks.len();
-        let block = Block::new(self, id);
+        let block = LayoutBlock::new(self, id);
         self.constraints_accu
             .push(self.right_var | GE(REQUIRED) | block.right());
         self.constraints_accu
@@ -89,7 +89,7 @@ impl Layout<'_> {
         padding: f64,
     ) -> (BlockId, Vec<String>) {
         let id = self.blocks.len();
-        let mut block = Block::new(self, id);
+        let mut block = LayoutBlock::new(self, id);
         block.line_height = self.glyphs_height;
         self.constraints_accu
             .push(self.right_var | GE(REQUIRED) | block.right());
@@ -146,7 +146,7 @@ impl Layout<'_> {
         (id, liness)
     }
 
-    pub fn b(&self, id: BlockId) -> &Block {
+    pub fn b(&self, id: BlockId) -> &LayoutBlock {
         &self.blocks[id]
     }
 
@@ -305,7 +305,7 @@ pub enum BlockVariable {
     Height,
 }
 
-pub struct Block {
+pub struct LayoutBlock {
     x: Variable,
     y: Variable,
     pub width: Variable,
@@ -318,8 +318,8 @@ pub struct Block {
     pub line_height: f64,
 }
 
-impl Block {
-    pub fn new(layout: &mut Layout, id: BlockId) -> Block {
+impl LayoutBlock {
+    pub fn new(layout: &mut Layout, id: BlockId) -> LayoutBlock {
         let x = layout.add_var(id, BlockVariable::X);
         let y = layout.add_var(id, BlockVariable::Y);
         let width = layout.add_var(id, BlockVariable::Width);
@@ -330,7 +330,7 @@ impl Block {
         layout.constraints_accu.push(width | GE(REQUIRED) | 0f64);
         layout.constraints_accu.push(height | GE(REQUIRED) | 0f64);
 
-        Block {
+        LayoutBlock {
             x,
             y,
             width,
