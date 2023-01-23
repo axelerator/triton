@@ -92,7 +92,7 @@ impl Layout<'_> {
     ) -> (BlockId, Vec<String>) {
         let id = self.blocks.len();
         let mut block = LayoutBlock::new(self, id);
-        block.line_height = self.glyphs_height;
+        block.block.line_height = self.glyphs_height;
         self.constraints_accu
             .push(self.right_var | GE(REQUIRED) | block.right());
         self.constraints_accu
@@ -173,22 +173,7 @@ impl Layout<'_> {
                 VariableId::LayoutBottom => self.bottom_ = value,
                 VariableId::BlockVar(block_id, attr) => {
                     let mut block = self.blocks.get_mut(block_id).unwrap();
-
-                    match attr {
-                        BlockVariable::X => {
-                            block.x_ = value;
-                        }
-                        BlockVariable::Y => {
-                            block.y_ = value;
-                        }
-                        BlockVariable::Width => {
-                            block.width_ = value;
-                        }
-                        BlockVariable::Height => {
-                            block.height_ = value;
-                        }
-                    }
-                    block.adjust_block();
+                    block.update_value(attr, value);
                 }
             }
         }
@@ -327,12 +312,6 @@ pub struct LayoutBlock {
     y: Variable,
     pub width: Variable,
     pub height: Variable,
-
-    x_: f64,
-    y_: f64,
-    width_: f64,
-    height_: f64,
-    line_height: f64,
     block: Block,
 }
 
@@ -353,11 +332,6 @@ impl LayoutBlock {
             y,
             width,
             height,
-            x_: 0.0,
-            y_: 0.0,
-            width_: 0.0,
-            height_: 0.0,
-            line_height: 0.0,
             block: Default::default(),
         }
     }
@@ -378,14 +352,24 @@ impl LayoutBlock {
         self.y + self.height
     }
 
-    fn adjust_block(&mut self) {
-        self.block.position = Vector2D::new(self.x_, self.y_);
-        self.block.width = self.width_;
-        self.block.height = self.height_;
-        self.block.line_height = self.line_height;
-    }
-
     pub fn solved(&self) -> &Block {
         &self.block
+    }
+
+    pub fn update_value(&mut self, attr: BlockVariable, value: Scalar) {
+        match attr {
+            BlockVariable::X => {
+                self.block.position = Vector2D::new(value, self.block.position.y);
+            }
+            BlockVariable::Y => {
+                self.block.position = Vector2D::new(self.block.position.x, value);
+            }
+            BlockVariable::Width => {
+                self.block.width = value;
+            }
+            BlockVariable::Height => {
+                self.block.height = value;
+            }
+        }
     }
 }
