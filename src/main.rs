@@ -1,37 +1,21 @@
-#![allow(unused)] // FIXME
-
 extern crate combine;
 mod layout;
 mod sequence_diagram;
 
-use itertools::Itertools;
-
 use layout::Layout;
 use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Style, Text};
-use svg::node::Node;
 use svg::Document;
 
-use cassowary::strength::{MEDIUM, REQUIRED, STRONG, WEAK};
+use cassowary::strength::REQUIRED;
 use cassowary::WeightedRelation::*;
-use cassowary::{Expression, Solver, Variable};
-use textwrap::{wrap, LineEnding, Options};
 
 use crate::layout::BlockId;
 
-use euclid::{self, Vector2D};
-
 use sequence_diagram::parser::*;
-
-type Scalar = f32;
-
-pub struct ScreenSpace;
-type Position = euclid::Vector2D<Scalar, ScreenSpace>;
-type Size = euclid::Vector2D<Scalar, ScreenSpace>;
 
 struct ParticipantMarker {
     lines: Vec<String>,
     block_id: BlockId,
-    participant_id: ParticipantId,
 }
 
 struct ParticipantLine {
@@ -50,7 +34,6 @@ struct MsgArrow {
 
 struct ActivationMarker {
     block: BlockId,
-    level: u16,
 }
 
 impl ParticipantMarker {
@@ -86,7 +69,7 @@ impl ParticipantMarker {
 }
 
 impl ParticipantLine {
-    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
+    fn to_svg(&self, layout: &Layout, _config: &SvgConfig) -> Group {
         let block = layout.b(self.block).solved();
         let mut group = Group::new().set(
             "transform",
@@ -115,22 +98,19 @@ impl MsgArrow {
             format!("translate({}, {})", block.position.x, block.position.y),
         );
 
-        let rect = match self.direction {
-            ArrowDirection::ToRight => Line::new()
-                .set("x1", 0)
-                .set("y1", block.height)
+        let mut rect = Line::new()
+            .set("x1", 0)
+            .set("y1", block.height)
+            .set("y2", block.height)
+            .set("stroke", "black")
+            .set("stroke-width", 1);
+
+        rect = match self.direction {
+            ArrowDirection::ToRight => rect
                 .set("x2", block.width - ARROW_TIP_LENGTH)
-                .set("y2", block.height)
-                .set("stroke", "black")
-                .set("stroke-width", 1)
                 .set("marker-end", "url(#end-arrow)"),
-            ArrowDirection::ToLeft => Line::new()
-                .set("x1", 0)
-                .set("y1", block.height)
+            ArrowDirection::ToLeft => rect
                 .set("x2", block.width)
-                .set("y2", block.height)
-                .set("stroke", "black")
-                .set("stroke-width", 1)
                 .set("marker-start", "url(#start-arrow)"),
         };
         group = group.add(rect);
@@ -154,7 +134,7 @@ impl MsgArrow {
 }
 
 impl ActivationMarker {
-    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
+    fn to_svg(&self, layout: &Layout, _config: &SvgConfig) -> Group {
         let block = layout.b(self.block).solved();
         let mut group = Group::new().set(
             "transform",
@@ -177,11 +157,10 @@ impl ActivationMarker {
 struct SvgConfig {
     max_participant_head_length: usize,
     max_msg_label_length: usize,
-    letter_per_unit: f64,
     msg_gutter: f64,
-    participant_gutter: f64,
     font_size: f64,
     padding: f64,
+    font_scale_factor: f64,
     corner_radius: f64,
 }
 
@@ -195,8 +174,12 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     let mut layout = Layout::new();
     let mut arrows = vec![];
     for m in &diagram.messages {
-        let (block, lines) =
-            layout.add_text_block(&m.msg, config.max_msg_label_length, config.padding);
+        let (block, lines) = layout.add_text_block(
+            &m.msg,
+            config.max_msg_label_length,
+            config.padding,
+            config.font_size * config.font_scale_factor,
+        );
 
         let msg_arrow = MsgArrow {
             msg_id: m.id,
@@ -271,13 +254,12 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
 
             let block = layout.b(block_id);
             layout.add_constraint(
-                block.top() | EQ(REQUIRED) | layout.b(first_arrow.block).top() - config.msg_gutter,
+                block.top() | EQ(REQUIRED) | (layout.b(first_arrow.block).top() - config.msg_gutter),
             );
             let block = layout.b(block_id);
             layout.add_constraint(
                 block.bottom()
-                    | EQ(REQUIRED)
-                    | layout.b(last_arrow.block).bottom() + config.msg_gutter,
+                    | EQ(REQUIRED) | (layout.b(last_arrow.block).bottom() + config.msg_gutter),
             );
             if let Some(prev_block_id) = last_block {
                 let block = layout.b(block_id);
@@ -317,16 +299,12 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
             layout.add_constraint(layout.b(block_id).width | EQ(REQUIRED) | layout.glyphs_height);
 
             layout.add_constraint(
-                layout.b(block_id).left() + (layout.glyphs_height) * 1.5
-                    - (activation.level as f64 * (layout.glyphs_height * 0.5))
-                    | EQ(REQUIRED)
+                (layout.b(block_id).left() + (layout.glyphs_height) * 1.5
+                    - (activation.level as f64 * (layout.glyphs_height * 0.5))) | EQ(REQUIRED)
                     | layout.b(p_line.block).left(),
             );
 
-            activation_markers.push(ActivationMarker {
-                block: block_id,
-                level: activation.level,
-            });
+            activation_markers.push(ActivationMarker { block: block_id });
         }
     }
 
@@ -358,8 +336,8 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
                         ArrowSide::Right(arrow.block)
                     };
                 }
-                ArrowSide::Left(first_block_id) => {}
-                ArrowSide::Right(first_block_id) => {}
+                ArrowSide::Left(_) => {}
+                ArrowSide::Right(_) => {}
             }
         }
     }
@@ -376,18 +354,14 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
             &participant.name,
             config.max_participant_head_length,
             config.padding,
+            config.font_size * config.font_scale_factor,
         );
-        let head = ParticipantMarker {
-            block_id: b,
-            participant_id: participant.id,
-            lines,
-        };
+        let head = ParticipantMarker { block_id: b, lines };
         layout.add_constraint(
             layout.b(b).bottom() | EQ(REQUIRED) | layout.b(participant_line.block).top(),
         );
         layout.add_constraint(
-            layout.b(b).left() + (layout.b(b).width * 0.5)
-                | EQ(REQUIRED)
+            (layout.b(b).left() + (layout.b(b).width * 0.5)) | EQ(REQUIRED)
                 | layout.b(participant_line.block).left(),
         );
         heads.push(head);
@@ -396,18 +370,17 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
             &participant.name,
             config.max_participant_head_length,
             config.padding,
+            config.font_size * config.font_scale_factor,
         );
         let footer = ParticipantMarker {
             block_id: footer_b,
-            participant_id: participant.id,
             lines,
         };
         layout.add_constraint(
             layout.b(footer_b).top() | EQ(REQUIRED) | layout.b(participant_line.block).bottom(),
         );
         layout.add_constraint(
-            layout.b(footer_b).left() + (layout.b(footer_b).width * 0.5)
-                | EQ(REQUIRED)
+            (layout.b(footer_b).left() + (layout.b(footer_b).width * 0.5)) | EQ(REQUIRED)
                 | layout.b(participant_line.block).left(),
         );
         footers.push(footer);
@@ -467,9 +440,8 @@ fn main() {
     let svg_config = SvgConfig {
         max_participant_head_length: 5,
         max_msg_label_length: 60,
-        letter_per_unit: 0.25,
+        font_scale_factor: 1.2,
         msg_gutter: 20.0,
-        participant_gutter: 20.0,
         font_size: 10.0,
         padding: 5.0,
         corner_radius: 2.0,
@@ -490,7 +462,7 @@ fn main() {
             to_svg(&diagram, &svg_config);
         }
         Err(e) => {
-            println!("Error: {:?}", e);
+            println!("Error: {e:?}");
         }
     }
 }

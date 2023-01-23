@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
 use combine::error::StringStreamError;
-use combine::parser::char::{char, letter, newline, space, spaces, string};
+use combine::parser::char::{char, newline, space, string};
 use combine::parser::choice::choice;
 use combine::parser::repeat::take_until;
-use combine::parser::sequence::skip;
-use combine::{many, many1, none_of, optional, skip_many, skip_many1, ParseError, Parser, Stream};
+use combine::{many1, optional, skip_many, ParseError, Parser, Stream};
 
 pub type ParticipantId = usize;
 pub type MessageId = usize;
@@ -64,8 +63,8 @@ pub struct MessageLine {
 
 #[derive(PartialEq, Debug)]
 pub enum Line {
-    EmptyLine,
-    MessageLine(MessageLine),
+    Empty,
+    Message(MessageLine),
     Participant(String),
 }
 
@@ -77,7 +76,7 @@ pub enum Arrow {
 
 pub fn parse(src: String) -> Result<SequenceDiagram, StringStreamError> {
     let mut parser = lines_parser();
-    match parser.parse(format!("{}\n", src).as_str()) {
+    match parser.parse(format!("{src}\n").as_str()) {
         Ok((lines, _)) => Ok(build_diagram(lines)),
         Err(e) => Err(e),
     }
@@ -86,10 +85,9 @@ pub fn parse(src: String) -> Result<SequenceDiagram, StringStreamError> {
 fn build_participants(lines: &Vec<Line>) -> Vec<Participant> {
     let mut participant_names = vec![];
     let mut participants: Vec<Participant> = vec![];
-    let mut id = 0;
     for line in lines {
         match line {
-            Line::MessageLine(MessageLine { from, to, .. }) => {
+            Line::Message(MessageLine { from, to, .. }) => {
                 if !participant_names.contains(from) {
                     let p: Participant = Participant {
                         name: from.clone(),
@@ -111,7 +109,7 @@ fn build_participants(lines: &Vec<Line>) -> Vec<Participant> {
                 if !participant_names.contains(name) {
                     let p: Participant = Participant {
                         name: name.clone(),
-                        id,
+                        id: participants.len(),
                     };
                     participant_names.push(name.clone());
                     participants.push(p);
@@ -127,7 +125,7 @@ fn build_participants(lines: &Vec<Line>) -> Vec<Participant> {
 fn build_diagram(lines: Vec<Line>) -> SequenceDiagram {
     let mut msg_lines: Vec<&MessageLine> = vec![];
     for line in &lines {
-        if let Line::MessageLine(msg_line) = line {
+        if let Line::Message(msg_line) = line {
             msg_lines.push(msg_line);
         }
     }
@@ -246,7 +244,7 @@ where
     Input: Stream<Token = char>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
-    (newline()).map(|_| Line::EmptyLine)
+    (newline()).map(|_| Line::Empty)
 }
 
 fn participant_line_parser<Input>() -> impl Parser<Input, Output = Line>
@@ -282,7 +280,7 @@ where
         eol,
     )
         .map(|(from, arrow, activation, to, _, _, msg, _)| {
-            Line::MessageLine(MessageLine {
+            Line::Message(MessageLine {
                 from,
                 arrow,
                 activation,
@@ -386,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_message_line_parser() {
-        let expected = Line::MessageLine(MessageLine {
+        let expected = Line::Message(MessageLine {
             from: "Alice".to_string(),
             arrow: Arrow::SolidNoArrow,
             to: "Bob".to_string(),
@@ -401,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_message_line_parser_with_space() {
-        let expected = Line::MessageLine(MessageLine {
+        let expected = Line::Message(MessageLine {
             from: "Alice".to_string(),
             arrow: Arrow::SolidNoArrow,
             to: "Bob".to_string(),
@@ -416,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_line_parser() {
-        let expected = Line::MessageLine(MessageLine {
+        let expected = Line::Message(MessageLine {
             from: "Alice".to_string(),
             arrow: Arrow::SolidNoArrow,
             to: "Bob".to_string(),
@@ -431,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_line_parser_with_empty_line() {
-        let expected = Line::EmptyLine;
+        let expected = Line::Empty;
         assert_eq!(Ok((expected, "")), line_parser().parse(" \n"));
     }
 

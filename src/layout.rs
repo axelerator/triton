@@ -86,9 +86,10 @@ impl Layout<'_> {
 
     pub fn add_text_block(
         &mut self,
-        content: &String,
+        content: &str,
         max_length: usize,
         padding: f64,
+        font_size: f64,
     ) -> (BlockId, Vec<String>) {
         let id = self.blocks.len();
         let mut block = LayoutBlock::new(self, id);
@@ -100,9 +101,9 @@ impl Layout<'_> {
 
         let mut text_width = 0;
 
-        let lines = wrap(content.as_str(), max_length);
+        let lines = wrap(content, max_length);
         // The font size to use
-        let scale = Scale::uniform(12.0);
+        let scale = Scale::uniform(font_size as f32);
         let v_metrics = self.font.v_metrics(scale);
 
         let mut height = 2.0 * padding;
@@ -113,7 +114,7 @@ impl Layout<'_> {
                 .layout(line, scale, point(0.0, 0.0 + v_metrics.ascent))
                 .collect();
             // work out the layout size
-            height += self.glyphs_height as f64;
+            height += self.glyphs_height;
             let glyphs_width = {
                 let min_x = glyphs
                     .first()
@@ -137,7 +138,7 @@ impl Layout<'_> {
         self.constraints_accu.push(block.width | EQ(WEAK) | width);
 
         self.constraints_accu
-            .push(block.height | GE(STRONG) | (height as f64));
+            .push(block.height | GE(STRONG) | height);
 
         self.blocks.push(block);
         let liness: Vec<String> = lines
@@ -200,7 +201,7 @@ impl Layout<'_> {
                     let prev_block = self.b(*prev);
                     let next_block = self.b(*next);
                     self.add_constraint(
-                        prev_block.bottom() + gutter | LE(REQUIRED) | next_block.top(),
+                        (prev_block.bottom() + gutter) | LE(REQUIRED) | next_block.top(),
                     );
                 }
             }
@@ -209,7 +210,7 @@ impl Layout<'_> {
                     let prev_block = self.b(*prev);
                     let next_block = self.b(*next);
                     self.add_constraint(
-                        prev_block.right() + gutter | LE(REQUIRED) | next_block.left(),
+                        (prev_block.right() + gutter) | LE(REQUIRED) | next_block.left(),
                     );
                 }
             }
@@ -233,9 +234,7 @@ impl Layout<'_> {
                         }
                         AlignmentAnchor::Middle => {
                             self.add_constraint(
-                                prev_block.top() + (prev_block.height * 0.5)
-                                    | EQ(REQUIRED)
-                                    | next_block.top() + (next_block.height * 0.5),
+                                (prev_block.top() + (prev_block.height * 0.5)) | EQ(REQUIRED) | (next_block.top() + (next_block.height * 0.5)),
                             );
                         }
                         AlignmentAnchor::End => {
@@ -259,9 +258,7 @@ impl Layout<'_> {
                         }
                         AlignmentAnchor::Middle => {
                             self.add_constraint(
-                                prev_block.left() + (prev_block.width * 0.5)
-                                    | EQ(REQUIRED)
-                                    | next_block.left() + (next_block.width * 0.5),
+                                (prev_block.left() + (prev_block.width * 0.5)) | EQ(REQUIRED) | (next_block.left() + (next_block.width * 0.5)),
                             );
                         }
                         AlignmentAnchor::End => {
