@@ -4,7 +4,9 @@ use combine::error::StringStreamError;
 use combine::parser::char::{char, newline, space, string};
 use combine::parser::choice::choice;
 use combine::parser::repeat::take_until;
-use combine::{many1, optional, skip_many, ParseError, Parser, Stream};
+use combine::{
+    many1, none_of, optional, sep_by1, skip_many, skip_many1, ParseError, Parser, Stream,
+};
 
 pub type ParticipantId = usize;
 pub type MessageId = usize;
@@ -67,6 +69,7 @@ pub enum Line {
     Message(MessageLine),
     Participant(String),
     Actor(String),
+    Note(NotePosition, String),
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -284,6 +287,80 @@ where
         .map(|(_, _, name)| Line::Actor(name.trim().to_string()))
 }
 
+#[derive(PartialEq, Debug)]
+pub enum NotePosition {
+    LeftOf(String),
+    Over(Vec<String>),
+    RightOf(String),
+}
+
+fn left_of_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+where
+    Input: Stream<Token = char>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    (
+        string("left of"),
+        skip_many1(char(' ')),
+        take_until(char(':')),
+    )
+        .map(|(_, _, name)| NotePosition::LeftOf(name))
+}
+
+fn right_of_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+where
+    Input: Stream<Token = char>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    (
+        string("left of"),
+        skip_many1(char(' ')),
+        take_until(char(':')),
+    )
+        .map(|(_, _, name)| NotePosition::RightOf(name))
+}
+
+fn over_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+where
+    Input: Stream<Token = char>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    let participant_name = many1(none_of(":,".chars()));
+    let separator = char(',');
+    (
+        string("over"),
+        skip_many1(char(' ')),
+        sep_by1(participant_name, separator),
+    )
+        .map(|(_, _, names): (&str, (), Vec<String>)| {
+            NotePosition::Over(names.iter().map(|s| s.trim().to_string()).collect())
+        })
+}
+
+fn note_position_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+where
+    Input: Stream<Token = char>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    choice((left_of_parser(), right_of_parser(), over_parser()))
+}
+
+fn note_line_parser<Input>() -> impl Parser<Input, Output = Line>
+where
+    Input: Stream<Token = char>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    (
+        string("Note"),
+        skip_many1(char(' ')),
+        note_position_parser(),
+        char(':'),
+        skip_many(char(' ')),
+        take_until(char('\n')),
+    )
+        .map(|(_, _, note_position, _, _, msg)| Line::Note(note_position, msg))
+}
+
 fn msg_line_parser<Input>() -> impl Parser<Input, Output = Line>
 where
     Input: Stream<Token = char>,
@@ -323,6 +400,7 @@ where
         skip_many(char(' ')),
         choice((
             empty_line_parser(),
+            note_line_parser(),
             participant_line_parser(),
             actor_line_parser(),
             msg_line_parser(),
@@ -453,6 +531,45 @@ mod tests {
     }
 
     #[test]
+    fn test_note_over() {
+        let expected = Line::Note(
+            NotePosition::Over(vec!["Alice".to_string(), "Bob".to_string()]),
+            "Foo".to_string(),
+        );
+        assert_eq!(
+            Ok((expected, "\n")),
+            line_parser().parse("Note over Alice , Bob:Foo\n")
+        );
+    }
+
+    #[test]
+    fn test_over_parser() {
+        let expected = NotePosition::Over(vec!["Alice".to_string(), "Bob".to_string()]);
+
+        assert_eq!(Ok((expected, ":")), over_parser().parse("over Alice,Bob:"));
+    }
+
+    #[test]
+    fn test_note_left_of_parser() {
+        let expected = Line::Note(NotePosition::LeftOf("Alice".to_string()), "Foo".to_string());
+
+        assert_eq!(
+            Ok((expected, "\n")),
+            note_line_parser().parse("Note left of Alice: Foo\n")
+        );
+    }
+
+    #[test]
+    fn test_note_pos_parser() {
+        let expected = NotePosition::LeftOf("Alice".to_string());
+
+        assert_eq!(
+            Ok((expected, ":")),
+            note_position_parser().parse("left of Alice:")
+        );
+    }
+
+    #[test]
     fn test_line_parser_with_empty_line() {
         let expected = Line::Empty;
         assert_eq!(Ok((expected, "")), line_parser().parse(" \n"));
@@ -488,9 +605,9 @@ mod tests {
     #[test]
     fn test_roundtrip() {
         let input = r#"
-    Alice->Bob:How are you?
-    Bob->Alice:I'm fine!
-"#;
+            Alice->Bob:How are you?
+            Bob->Alice:I'm fine!
+        "#;
 
         let expected = SequenceDiagram {
             participants: vec![
