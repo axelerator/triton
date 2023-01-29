@@ -16,5 +16,7 @@ fn main() {
     "#;
 
 
-    core::sequence_diagram::render(src)
+    let doc = core::sequence_diagram::render(src).unwrap();
+
+    svg::save("image.svg", &doc).unwrap();
 }

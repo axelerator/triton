@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Style, Text};
+use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Style, Text, SVG};
 use svg::Document;
 
 use cassowary::strength::{REQUIRED, STRONG};
@@ -203,7 +203,7 @@ enum ArrowSide {
     Right(BlockId),
 }
 
-pub fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
+pub fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) -> SVG {
     let mut layout = Layout::new();
     let mut arrows = vec![];
     for m in &diagram.messages {
@@ -606,6 +606,6 @@ pub fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
         doc = doc.add(elem.to_svg(&layout, config));
     }
 
-    svg::save("image.svg", &doc).unwrap();
+    doc
 }
 
