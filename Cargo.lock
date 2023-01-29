@@ -81,6 +81,7 @@ dependencies = [
  "euclid",
  "itertools",
  "rusttype",
+ "svg",
  "textwrap",
 ]
 
