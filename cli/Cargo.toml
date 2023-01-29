@@ -1,0 +1,10 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core = { path = "../core" }
+itertools = "0.10.5"
+svg = "0.13.0"
+cassowary = "0.3.0"

@@ -1,18 +1,13 @@
-extern crate combine;
-mod layout;
-mod sequence_diagram;
 
 use itertools::Itertools;
-use layout::Layout;
 use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Style, Text};
 use svg::Document;
 
 use cassowary::strength::{REQUIRED, STRONG};
 use cassowary::WeightedRelation::*;
 
-use crate::layout::BlockId;
-
-use sequence_diagram::parser::*;
+use core::layout::{Layout,BlockId, Orientation};
+use core::sequence_diagram::*;
 
 struct ParticipantMarker {
     lines: Vec<String>,
@@ -232,7 +227,7 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     }
 
     layout.distribute(
-        layout::Orientation::Vertical,
+        Orientation::Vertical,
         config.msg_gutter,
         arrows.iter().map(|a| &a.block),
     );
@@ -641,7 +636,7 @@ fn main() {
     "#;
 
 
-    match sequence_diagram::parser::parse(src.to_string()) {
+    match core::sequence_diagram::parser::parse(src.to_string()) {
         Ok(diagram) => {
             to_svg(&diagram, &svg_config);
         }

@@ -1,7 +1,6 @@
 #![allow(unused)]
 use euclid::Vector2D;
-// FIXME
-//
+
 use itertools::Itertools;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -51,7 +50,7 @@ impl Layout<'_> {
         vars.insert(bottom_var, VariableId::LayoutBottom);
 
         // Read the font data.
-        let font = include_bytes!("../resources/fonts/Roboto-Regular.ttf") as &[u8];
+        let font = include_bytes!("../../resources/fonts/Roboto-Regular.ttf") as &[u8];
         // Parse it into the font type.
         let roboto_regular = Font::try_from_bytes(font).expect("Error constructing Font");
 
