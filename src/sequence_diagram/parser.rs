@@ -41,11 +41,36 @@ pub enum ArrowDirection {
     ToLeft,
 }
 
+pub type NoteId = usize;
+
+#[derive(PartialEq, Debug)]
+pub enum VerticalNotePosition {
+    First,
+    AfterMessage(MessageId),
+    AfterNote(NoteId),
+}
+
+#[derive(PartialEq, Debug)]
+pub enum HorizontalNotePosition {
+    LeftOf(ParticipantId),
+    RightOf(ParticipantId),
+    Over(Vec<ParticipantId>),
+}
+
+#[derive(PartialEq, Debug)]
+pub struct Note {
+    pub id: NoteId,
+    pub content: String,
+    pub vertical_position: VerticalNotePosition,
+    pub horizontal_position: HorizontalNotePosition,
+}
+
 #[derive(PartialEq, Debug)]
 pub struct SequenceDiagram {
     pub participants: Vec<Participant>,
     pub messages: Vec<Message>,
     pub activations: Vec<Activation>,
+    pub notes: Vec<Note>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -69,7 +94,7 @@ pub enum Line {
     Message(MessageLine),
     Participant(String),
     Actor(String),
-    Note(NotePosition, String),
+    Note(NotePositioning, String),
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -137,82 +162,130 @@ fn build_participants(lines: &Vec<Line>) -> Vec<Participant> {
 }
 
 fn build_diagram(lines: Vec<Line>) -> SequenceDiagram {
-    let mut msg_lines: Vec<&MessageLine> = vec![];
-    for line in &lines {
-        if let Line::Message(msg_line) = line {
-            msg_lines.push(msg_line);
-        }
-    }
-
     let participants = build_participants(&lines);
-
     let mut activations: Vec<Activation> = vec![];
     // stores the level and start of the last activation of each participant
     let mut open_activations: HashMap<ParticipantId, Vec<(u16, MessageId)>> = HashMap::new();
     let mut messages = vec![];
-    for (line_nr, line) in msg_lines.iter().enumerate() {
-        let from_idx = participants.iter().find(|&p| p.name == line.from);
-        let to_idx = participants.iter().find(|&p| p.name == line.to);
-        match (from_idx, to_idx) {
-            (Some(from), Some(to)) => {
-                let msg = if from.id > to.id {
-                    Message {
-                        id: line_nr,
-                        left: to.id,
-                        right: from.id,
-                        msg: line.msg.clone(),
-                        arrow: line.arrow.clone(),
-                        direction: ArrowDirection::ToLeft,
-                    }
-                } else {
-                    Message {
-                        id: line_nr,
-                        left: from.id,
-                        right: to.id,
-                        msg: line.msg.clone(),
-                        arrow: line.arrow.clone(),
-                        direction: ArrowDirection::ToRight,
-                    }
-                };
-                if let Some(activation_change) = &line.activation {
-                    match activation_change {
-                        ActivationChange::Activate => {
-                            let open: &mut Vec<(u16, MessageId)> =
-                                open_activations.entry(to.id).or_insert(vec![]);
-                            let (last_level, _) = open.last().unwrap_or(&(0, 0));
-                            open.push((last_level + 1, line_nr));
+    for (line_nr, line) in lines.iter().enumerate() {
+        if let Line::Message(line) = line {
+            let from_idx = participants.iter().find(|&p| p.name == line.from);
+            let to_idx = participants.iter().find(|&p| p.name == line.to);
+            match (from_idx, to_idx) {
+                (Some(from), Some(to)) => {
+                    let msg = if from.id > to.id {
+                        Message {
+                            id: line_nr,
+                            left: to.id,
+                            right: from.id,
+                            msg: line.msg.clone(),
+                            arrow: line.arrow.clone(),
+                            direction: ArrowDirection::ToLeft,
                         }
-                        ActivationChange::Deactivate => {
-                            let open: &mut Vec<(u16, MessageId)> = open_activations
-                                .get_mut(&from.id)
-                                .expect("Wasn't activated");
-                            let (level, message_id) = open.last().expect("Still wasn't activated");
+                    } else {
+                        Message {
+                            id: line_nr,
+                            left: from.id,
+                            right: to.id,
+                            msg: line.msg.clone(),
+                            arrow: line.arrow.clone(),
+                            direction: ArrowDirection::ToRight,
+                        }
+                    };
+                    if let Some(activation_change) = &line.activation {
+                        match activation_change {
+                            ActivationChange::Activate => {
+                                let open: &mut Vec<(u16, MessageId)> =
+                                    open_activations.entry(to.id).or_insert(vec![]);
+                                let (last_level, _) = open.last().unwrap_or(&(0, 0));
+                                open.push((last_level + 1, line_nr));
+                            }
+                            ActivationChange::Deactivate => {
+                                let open: &mut Vec<(u16, MessageId)> = open_activations
+                                    .get_mut(&from.id)
+                                    .expect("Wasn't activated");
+                                let (level, message_id) =
+                                    open.last().expect("Still wasn't activated");
 
-                            let activation = Activation {
-                                participant_id: from.id,
-                                from: *message_id,
-                                to: line_nr,
-                                level: *level,
-                            };
-                            open.pop();
-                            activations.push(activation);
+                                let activation = Activation {
+                                    participant_id: from.id,
+                                    from: *message_id,
+                                    to: line_nr,
+                                    level: *level,
+                                };
+                                open.pop();
+                                activations.push(activation);
+                            }
                         }
                     }
+                    messages.push(msg);
                 }
-                messages.push(msg);
-            }
-            _ => {
-                println!("NO {:?}, {:?}", from_idx, line.to);
+                _ => {
+                    println!("NO {:?}, {:?}", from_idx, line.to);
+                }
             }
         }
     }
     // so lowest level activations come first
     activations.reverse();
+    let notes = build_notes(&lines, &participants);
     SequenceDiagram {
         participants,
         messages,
         activations,
+        notes,
     }
+}
+
+fn build_notes(lines: &Vec<Line>, participants: &Vec<Participant>) -> Vec<Note> {
+    let id_of = |participant_name| {
+        participants
+            .iter()
+            .find(|p| &p.name == participant_name)
+            .unwrap()
+            .id
+    };
+
+    let mut vertical_position = VerticalNotePosition::First;
+
+    let mut notes = vec![];
+    for (line_nr, line) in lines.iter().enumerate() {
+        match line {
+            Line::Message(_) => {
+                vertical_position = VerticalNotePosition::AfterMessage(line_nr);
+            }
+            Line::Note(pos, content) => {
+                let content = content.clone();
+                let note = match pos {
+                    NotePositioning::LeftOf(name) => Note {
+                        id: line_nr,
+                        content,
+                        horizontal_position: HorizontalNotePosition::LeftOf(id_of(name)),
+                        vertical_position,
+                    },
+                    NotePositioning::RightOf(name) => Note {
+                        id: line_nr,
+                        content,
+                        horizontal_position: HorizontalNotePosition::RightOf(id_of(name)),
+                        vertical_position,
+                    },
+                    NotePositioning::Over(names) => {
+                        let participant_ids = names.iter().map(|name| id_of(name)).collect();
+                        Note {
+                            id: line_nr,
+                            content,
+                            horizontal_position: HorizontalNotePosition::Over(participant_ids),
+                            vertical_position,
+                        }
+                    }
+                };
+                vertical_position = VerticalNotePosition::AfterNote(note.id);
+                notes.push(note);
+            }
+            _ => {}
+        }
+    }
+    notes
 }
 
 fn arrow_parser<Input>() -> impl Parser<Input, Output = Arrow>
@@ -288,13 +361,13 @@ where
 }
 
 #[derive(PartialEq, Debug)]
-pub enum NotePosition {
+pub enum NotePositioning {
     LeftOf(String),
     Over(Vec<String>),
     RightOf(String),
 }
 
-fn left_of_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+fn left_of_parser<Input>() -> impl Parser<Input, Output = NotePositioning>
 where
     Input: Stream<Token = char>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
@@ -304,23 +377,23 @@ where
         skip_many1(char(' ')),
         take_until(char(':')),
     )
-        .map(|(_, _, name)| NotePosition::LeftOf(name))
+        .map(|(_, _, name)| NotePositioning::LeftOf(name))
 }
 
-fn right_of_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+fn right_of_parser<Input>() -> impl Parser<Input, Output = NotePositioning>
 where
     Input: Stream<Token = char>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     (
-        string("left of"),
+        string("right of"),
         skip_many1(char(' ')),
         take_until(char(':')),
     )
-        .map(|(_, _, name)| NotePosition::RightOf(name))
+        .map(|(_, _, name)| NotePositioning::RightOf(name))
 }
 
-fn over_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+fn over_parser<Input>() -> impl Parser<Input, Output = NotePositioning>
 where
     Input: Stream<Token = char>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
@@ -333,11 +406,11 @@ where
         sep_by1(participant_name, separator),
     )
         .map(|(_, _, names): (&str, (), Vec<String>)| {
-            NotePosition::Over(names.iter().map(|s| s.trim().to_string()).collect())
+            NotePositioning::Over(names.iter().map(|s| s.trim().to_string()).collect())
         })
 }
 
-fn note_position_parser<Input>() -> impl Parser<Input, Output = NotePosition>
+fn note_position_parser<Input>() -> impl Parser<Input, Output = NotePositioning>
 where
     Input: Stream<Token = char>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
@@ -533,7 +606,7 @@ mod tests {
     #[test]
     fn test_note_over() {
         let expected = Line::Note(
-            NotePosition::Over(vec!["Alice".to_string(), "Bob".to_string()]),
+            NotePositioning::Over(vec!["Alice".to_string(), "Bob".to_string()]),
             "Foo".to_string(),
         );
         assert_eq!(
@@ -544,14 +617,17 @@ mod tests {
 
     #[test]
     fn test_over_parser() {
-        let expected = NotePosition::Over(vec!["Alice".to_string(), "Bob".to_string()]);
+        let expected = NotePositioning::Over(vec!["Alice".to_string(), "Bob".to_string()]);
 
         assert_eq!(Ok((expected, ":")), over_parser().parse("over Alice,Bob:"));
     }
 
     #[test]
     fn test_note_left_of_parser() {
-        let expected = Line::Note(NotePosition::LeftOf("Alice".to_string()), "Foo".to_string());
+        let expected = Line::Note(
+            NotePositioning::LeftOf("Alice".to_string()),
+            "Foo".to_string(),
+        );
 
         assert_eq!(
             Ok((expected, "\n")),
@@ -561,7 +637,7 @@ mod tests {
 
     #[test]
     fn test_note_pos_parser() {
-        let expected = NotePosition::LeftOf("Alice".to_string());
+        let expected = NotePositioning::LeftOf("Alice".to_string());
 
         assert_eq!(
             Ok((expected, ":")),

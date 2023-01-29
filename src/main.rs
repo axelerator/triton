@@ -2,11 +2,12 @@ extern crate combine;
 mod layout;
 mod sequence_diagram;
 
+use itertools::Itertools;
 use layout::Layout;
 use svg::node::element::{Definitions, Group, Line, Marker, Polygon, Rectangle, Style, Text};
 use svg::Document;
 
-use cassowary::strength::REQUIRED;
+use cassowary::strength::{REQUIRED, STRONG};
 use cassowary::WeightedRelation::*;
 
 use crate::layout::BlockId;
@@ -154,6 +155,44 @@ impl ActivationMarker {
     }
 }
 
+struct Note {
+    id: NoteId,
+    block_id: BlockId,
+    lines: Vec<String>,
+}
+
+impl Note {
+    fn to_svg(&self, layout: &Layout, config: &SvgConfig) -> Group {
+        let block = layout.b(self.block_id).solved();
+        let mut group = Group::new().set(
+            "transform",
+            format!("translate({}, {})", block.position.x, block.position.y),
+        );
+
+        let rect = Rectangle::new()
+            .set("x", 0)
+            .set("y", 0)
+            .set("width", block.width)
+            .set("height", block.height)
+            .set("fill", "#DDD")
+            .set("stroke", "black")
+            .set("rx", config.corner_radius)
+            .set("stroke-width", 1);
+        group = group.add(rect);
+        for (i, line) in self.lines.iter().enumerate() {
+            let t = Text::new()
+                .set("x", config.padding)
+                .set("y", config.padding + ((i + 1) as f64) * block.line_height)
+                .set("fill", "blue")
+                .set("font-family", "monospace")
+                .set("font-size", config.font_size)
+                .add(svg::node::Text::new(line));
+            group = group.add(t);
+        }
+        group
+    }
+}
+
 struct SvgConfig {
     max_participant_head_length: usize,
     max_msg_label_length: usize,
@@ -261,7 +300,7 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
             let block = layout.b(block_id);
             layout.add_constraint(
                 block.bottom()
-                    | EQ(REQUIRED)
+                    | GE(REQUIRED)
                     | (layout.b(last_arrow.block).bottom() + config.msg_gutter),
             );
             if let Some(prev_block_id) = last_block {
@@ -392,6 +431,135 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
         footers.push(footer);
     }
 
+    let mut notes = vec![];
+    for note in &diagram.notes {
+        let (block_id, lines) = layout.add_text_block(
+            &note.content,
+            config.max_participant_head_length,
+            config.padding,
+            config.font_size * config.font_scale_factor,
+        );
+
+        match &note.horizontal_position {
+            HorizontalNotePosition::LeftOf(participant_id) => {
+                let prev_and_left_of = 
+                    participant_lines.iter()
+                    .tuple_windows()
+                    .find(|(_, left_of)| &left_of.participant_id == participant_id);
+
+                if let Some((prev, left_of)) = prev_and_left_of {
+                    layout.add_constraint(
+                        layout.b(block_id).right()
+                        | LE(REQUIRED)
+                        | layout.b(left_of.block).left() - config.msg_gutter,
+                        );
+                    layout.add_constraint(
+                        layout.b(block_id).left()
+                        | GE(REQUIRED)
+                        | layout.b(prev.block).right() + config.msg_gutter,
+                        );
+
+                } else {
+                    let participant_line = participant_lines
+                        .iter()
+                        .find(|l| l.participant_id == *participant_id)
+                        .unwrap();
+                    layout.add_constraint(
+                        layout.b(block_id).right()
+                        | LE(REQUIRED)
+                        | layout.b(participant_line.block).left() - config.msg_gutter,
+                        );
+                }
+            }
+            HorizontalNotePosition::RightOf(participant_id) => {
+                let participant_line = participant_lines
+                    .iter()
+                    .find(|l| l.participant_id == *participant_id)
+                    .unwrap();
+
+                layout.add_constraint(
+                    layout.b(block_id).left()
+                        | GE(REQUIRED)
+                        | layout.b(participant_line.block).right() + config.msg_gutter,
+                );
+            }
+
+            HorizontalNotePosition::Over(participant_ids) => {
+                let ordered_participants: Vec<&ParticipantLine> = participant_lines
+                    .iter()
+                    .filter(|pl| participant_ids.iter().contains(&pl.participant_id))
+                    .collect();
+                let leftmost = ordered_participants.first().unwrap();
+                let rightmost = ordered_participants.last().unwrap();
+
+                layout.add_constraint(
+                    layout.b(block_id).left()
+                        | LE(REQUIRED)
+                        | layout.b(leftmost.block).left() - config.msg_gutter,
+                );
+
+                layout.add_constraint(
+                    layout.b(block_id).right()
+                        | GE(REQUIRED)
+                        | layout.b(rightmost.block).left() + config.msg_gutter,
+                );
+            }
+        };
+
+        notes.push((
+            Note {
+                id: note.id,
+                block_id,
+                lines,
+            },
+            note,
+        ));
+    }
+
+    if let Some((last_note, _)) = notes.last() {
+        for participant_line in &participant_lines {
+            layout.add_constraint(
+                layout.b(participant_line.block).bottom()
+                    | GE(REQUIRED)
+                    | (layout.b(last_note.block_id).bottom() + config.msg_gutter),
+            );
+        }
+    }
+
+    let find_note_by_id = |note_id| {
+        let (note, _) = notes.iter().find(|(n, _)| n.id == note_id).unwrap();
+        note
+    };
+
+    for (note, note_data) in &notes {
+        match note_data.vertical_position {
+            VerticalNotePosition::First => {
+                let head = heads.first().unwrap();
+                layout.add_constraint(
+                    layout.b(note.block_id).top()
+                        | EQ(STRONG)
+                        | layout.b(head.block_id).bottom() + config.msg_gutter,
+                );
+            }
+            VerticalNotePosition::AfterMessage(msg_id) => {
+                let msg = arrows.iter().find(|a| a.msg_id == msg_id).unwrap();
+                layout.add_constraint(
+                    layout.b(note.block_id).top()
+                        | EQ(STRONG)
+                        | layout.b(msg.block).bottom() + config.msg_gutter,
+                );
+            }
+            VerticalNotePosition::AfterNote(note_id) => {
+                let other_note = find_note_by_id(note_id);
+                layout.add_constraint(
+                    layout.b(note.block_id).top()
+                        | EQ(STRONG)
+                        | layout.b(other_note.block_id).bottom() + config.msg_gutter,
+                );
+            }
+        }
+    }
+
     layout.solve();
     let mut doc = Document::new().set("viewBox", (0, 0, layout.width(), layout.height()));
     let defs = Definitions::new()
@@ -439,6 +607,11 @@ fn to_svg(diagram: &SequenceDiagram, config: &SvgConfig) {
     for elem in arrows {
         doc = doc.add(elem.to_svg(&layout, config));
     }
+
+    for (elem, _) in notes {
+        doc = doc.add(elem.to_svg(&layout, config));
+    }
+
     svg::save("image.svg", &doc).unwrap();
 }
 
@@ -455,13 +628,18 @@ fn main() {
 
     // "Alice->Bob long name:Solving the system each time make for faster updates and allow to keep the solver in a consinstent state. However, the variable values are not updated automatically and you need to ask the solver to perform this operation before reading the values as illustrated below\nJohn->Bob long name:iiiiiiiiiiiiiiiiiiiii\nBob long name->John:It's Alice\nBob long name->Alice:I'm fine\n".to_string(),
 
-    let src = r#"
+    let _src = r#"
         participant John
         Alice->+John: Hello John, how are you?
         Alice->+John: John, can you hear me?
         John->-Alice: Hi Alice, I can hear you!
         John->-Alice: I feel great!
     "#;
+    let src = r#"
+        Alice->+John: Hello John, how are you?
+        Note left of John: yeah
+    "#;
+
 
     match sequence_diagram::parser::parse(src.to_string()) {
         Ok(diagram) => {
