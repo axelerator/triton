@@ -1,3 +1,5 @@
 /target
 image.svg
 .DS_Store
+browser/pkg/
+browser/pkg
